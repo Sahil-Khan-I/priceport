@@ -626,7 +626,7 @@ function comparisonLabel(value?: string | null) {
 function taxesLine(offer: any) {
   const taxes = offer.taxes;
   const fees = offer.mandatoryFees;
-  if (taxes == null && fees == null) return "Taxes and fees not confirmed";
+  if (taxes == null && fees == null) return "Displayed price — fees not checked";
   const parts: string[] = [];
   if (taxes != null) parts.push(`taxes ${formatMoney(taxes, offer.currency || "USD")}`);
   if (fees != null) parts.push(`mandatory fees ${formatMoney(fees, offer.currency || "USD")}`);
@@ -706,22 +706,21 @@ function OfferCard({
           ) : null}
         </div>
 
-        <dl className="mt-4 grid grid-cols-[88px_1fr] gap-x-3 gap-y-1.5 text-xs">
+        <dl className="mt-4 grid grid-cols-[88px_1fr] gap-x-3 gap-y-1.5 text-sm">
+          <dt className="text-pp-muted">Hotel</dt>
+          <dd className="text-pp-text">{offer.hotelName || "Not confirmed"} · {offer.propertyMatch || "unknown"} match</dd>
           <dt className="text-pp-muted">Room</dt>
           <dd className="text-pp-text">{offer.roomType || "Not identified"} · {comparisonLabel(offer.comparisonClass)}</dd>
-          <dt className="text-pp-muted">Meals</dt>
-          <dd className="text-pp-text">{offer.mealPlan || "Unknown"}</dd>
-          <dt className="text-pp-muted">Cancellation</dt>
-          <dd className="text-pp-text">{offer.cancellationPolicy || "Not confirmed"}</dd>
-          <dt className="text-pp-muted">Taxes & fees</dt>
-          <dd className="text-pp-text">{taxesLine(offer)}</dd>
-          <dt className="text-pp-muted">Eligibility</dt>
-          <dd className="text-pp-text">{offer.eligibilityAssessment?.status || "Not checked"}</dd>
           <dt className="text-pp-muted">Checked</dt>
           <dd className="text-pp-text">
             {offer.checkedAt ? new Date(offer.checkedAt).toLocaleString() : "Unknown"}
           </dd>
         </dl>
+        <details className="mt-3 text-sm text-pp-muted">
+          <summary className="cursor-pointer font-medium text-pp-text">Price details</summary>
+          <p className="mt-2">{taxesLine(offer)}</p>
+          <p className="mt-1">{offer.priceNote || "Displayed price — fees not checked"}</p>
+        </details>
       </button>
 
       <div className="mt-4 flex flex-wrap items-center gap-3 border-t border-pp-border pt-4">

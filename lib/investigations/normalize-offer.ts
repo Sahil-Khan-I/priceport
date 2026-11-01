@@ -48,6 +48,7 @@ export function normalizeJobOffer({
   const totalPrice = num(
     payload?.totalPrice ?? payload?.total_price ?? payload?.price,
   );
+  const displayedPrice = num(payload?.displayedPrice ?? payload?.displayed_price);
   const unknownFees = Array.isArray(payload?.unknownFees)
     ? payload.unknownFees
     : Array.isArray(payload?.unknown_fees)
@@ -57,10 +58,19 @@ export function normalizeJobOffer({
   const nights =
     num(payload?.nightsExtracted ?? payload?.nights) ||
     stayNights(bookingDetails?.checkIn, bookingDetails?.checkOut);
+  const basisName = String(payload?.priceBasis ?? payload?.price_basis ?? "");
+  const nightlyInput = num(payload?.nightlyPrice ?? payload?.nightly_price);
+  const nightlyForBasis =
+    nightlyInput ??
+    (displayedPrice != null && /per_night|nightly|per_room/.test(basisName) ? displayedPrice : null);
+  const totalForBasis =
+    totalPrice ??
+    (displayedPrice != null && /total/.test(basisName) ? displayedPrice : null) ??
+    (nightlyForBasis == null ? displayedPrice : null);
   const interpreted = interpretPrice({
     priceBasis: payload?.priceBasis ?? payload?.price_basis,
-    nightlyPrice: num(payload?.nightlyPrice ?? payload?.nightly_price),
-    totalPrice,
+    nightlyPrice: nightlyForBasis,
+    totalPrice: totalForBasis,
     nights,
     rooms: bookingDetails?.rooms,
   });
@@ -114,7 +124,7 @@ export function normalizeJobOffer({
     mealPlanStatus,
     cancellationStatus,
     stayDifferences: bookingCompare.differences,
-    stayUnknowns: bookingCompare.unknowns,
+    availability: payload?.availability,
   });
 
   const missingFields: string[] = [];
@@ -168,7 +178,11 @@ export function normalizeJobOffer({
     nightlyPrice: interpreted.nightlyPrice,
     estimatedStayTotal: interpreted.estimatedStayTotal,
     displayedUnscoped: interpreted.displayedUnscoped,
-    priceNote: interpreted.note,
+    priceNote:
+      interpreted.note ||
+      (taxes == null && mandatoryFees == null
+        ? "Displayed price — fees not checked"
+        : null),
     basePrice,
     currency: payload?.currency || "",
     taxes,

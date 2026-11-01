@@ -57,12 +57,12 @@ describe("calculateSavings", () => {
     assert.match(result.reason, /Not enough verified comparable offers/);
   });
 
-  it("never compares refundable against non-refundable", () => {
+  it("does not block a displayed-price comparison on cancellation terms", () => {
     const result = calculateSavings([
       offer("a", 30000, { cancellationStatus: "non_refundable" }),
       offer("b", 48000, { cancellationStatus: "refundable" }),
     ]);
-    assert.equal(result.headline, null);
+    assert.equal(result.headline.savings, 18000);
   });
 
   it("excludes offers with unknown room or incomplete totals", () => {

@@ -224,6 +224,7 @@ export function classifyComparison({
   cancellationStatus = "unknown",
   stayDifferences = [],
   stayUnknowns = [],
+  availability = null,
 }: {
   preferences?: Record<string, unknown> | null;
   roomType?: string | null;
@@ -233,10 +234,14 @@ export function classifyComparison({
   cancellationStatus?: string;
   stayDifferences?: string[];
   stayUnknowns?: string[];
+  availability?: string | null;
 } = {}) {
   const reasons: string[] = [];
   if (stayDifferences.length) {
     return { status: "not_comparable", reasons: [...stayDifferences] };
+  }
+  if (availability === "unavailable" || availability === "room_unavailable") {
+    return { status: "room_unavailable", reasons: ["Requested room is not available"] };
   }
 
   const category = cleanPref(preferences?.category);
@@ -268,8 +273,8 @@ export function classifyComparison({
       missing = true;
       reasons.push("Bed configuration was not identified");
     } else if (!tokens.some((token) => haystack.includes(token))) {
-      hard = true;
-      reasons.push("Bed configuration does not match the request");
+      soft = true;
+      reasons.push("Same room category was not confirmed for the bed. Bed does not match.");
     } else {
       reasons.push("Bed configuration matches");
     }

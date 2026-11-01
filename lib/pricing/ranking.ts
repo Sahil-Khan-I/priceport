@@ -52,13 +52,12 @@ export async function rankOffers(
         bookingRisk,
         bookable,
         comparable:
-          trueCost.fullyComparable &&
           conversion.available &&
           ["exact", "probable"].includes(offer.propertyMatch) &&
           ["exact_match", "comparable"].includes(offer.comparisonClass || "comparable") &&
-          (offer.priceBasis == null ||
-            offer.priceBasis === "unknown" ||
-            offer.priceBasis === "total_stay"),
+          ["per_night", "per_room_per_night", "total_stay"].includes(
+            offer.priceBasis || (trueCost.fullyComparable ? "total_stay" : ""),
+          ),
       };
     }),
   );

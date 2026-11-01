@@ -163,16 +163,16 @@ export function describeEvent(event: LiveEvent, jobs: LiveJob[] = []) {
   if (type === "INVESTIGATION_CREATED") {
     return "Priceport started the investigation.";
   }
-  if (type === "STARTED") return `${who} is searching the selected market.`;
-  if (type === "STREAMING_URL") return `A live browser preview is available for ${who}.`;
+  if (type === "STARTED") {
+    return `Checking ${who}${job?.market ? ` — ${job.market}` : ""}.`;
+  }
+  if (type === "STREAMING_URL") return null;
   if (type === "COMPLETE") {
-    if (job && hasOffer(job)) {
-      return `${who} returned an offer. Totals stay labelled as extracted.`;
-    }
+    if (job && hasOffer(job)) return `Price found on ${who}.`;
     if (job?.status === "failed" || /fail/i.test(event.message || "")) {
-      return `${who} could not complete the investigation.`;
+      return `${who} could not find a price.`;
     }
-    return `${who} finished this market check.`;
+    return `${who} finished this check.`;
   }
   if (type === "PROGRESS") {
     return milestoneLabel(String(event.message || ""), who);
@@ -199,21 +199,10 @@ export function collapseActivity(
 function milestoneLabel(purpose: string, who: string) {
   const text = purpose.trim().toLowerCase();
   if (!text || text === "progress" || text === "heartbeat") return null;
-  if (/price|fee|tax|total|rate|extract/.test(text)) {
-    return `${who} is extracting pricing.`;
-  }
-  if (/cancel|policy|meal|board|condition|eligib/.test(text)) {
-    return `${who} is checking booking conditions.`;
-  }
-  if (/room|availab|occupan|date/.test(text)) {
-    return `${who} is checking room availability.`;
-  }
-  if (/search|type|hotel name|query|property/.test(text)) {
-    return `${who} is searching for the property.`;
-  }
-  if (/open|navigat|page|click|cookie|consent|tab|scroll/.test(text)) {
-    return `${who} is opening the provider.`;
-  }
+  if (/price|rate|extract|total|night/.test(text)) return `${who} is extracting the price.`;
+  if (/room|availab/.test(text)) return `${who} is matching the room.`;
+  if (/hotel|property|search/.test(text)) return `${who} is identifying the hotel.`;
+  if (/open|navigat|page/.test(text)) return `Checking ${who}.`;
   return null;
 }
 

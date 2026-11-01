@@ -66,10 +66,17 @@ export function perNight(total: number | null | undefined, nights: number | null
 
 export function comparisonKey(offer: SavingsOffer): string | null {
   const room = normalize(offer.roomType);
-  const meal = normalize(offer.mealPlanStatus);
-  const cancel = normalize(offer.cancellationStatus);
-  if (UNKNOWN.has(room) || UNKNOWN.has(meal) || UNKNOWN.has(cancel)) return null;
-  return `${room}|${meal}|${cancel}`;
+  const basis = resolvedBasis(offer);
+  if (UNKNOWN.has(room) || !basis) return null;
+  return `${basis}|${room}`;
+}
+
+function resolvedBasis(offer: SavingsOffer) {
+  if (["per_night", "per_room_per_night", "total_stay"].includes(String(offer.priceBasis || ""))) {
+    return String(offer.priceBasis);
+  }
+  if (offer.trueCost?.fullyComparable) return "total_stay";
+  return "";
 }
 
 export function calculateSavings(
@@ -82,12 +89,11 @@ export function calculateSavings(
 ): SavingsSummary {
   const nights = stayNights(checkIn, checkOut);
   const basis =
-    "Savings = highest comparable total − lowest comparable total, using confirmed all-in totals for the same room, meal plan and cancellation terms.";
+    "Difference between displayed prices for the same room and the same price basis. Fees are not treated as zero when they were not shown.";
 
   const eligible = offers.filter(
     (offer) =>
       offer.comparable === true &&
-      offer.trueCost?.fullyComparable === true &&
       offer.conversion?.available === true &&
       typeof offer.conversion.amount === "number" &&
       Number.isFinite(offer.conversion.amount) &&
@@ -95,9 +101,7 @@ export function calculateSavings(
       ["exact_match", "comparable", undefined, null, ""].includes(
         offer.comparisonClass as string | null | undefined,
       ) &&
-      !["per_night", "per_room_per_night", "per_person"].includes(
-        String(offer.priceBasis || ""),
-      ),
+      ["per_night", "per_room_per_night", "total_stay"].includes(resolvedBasis(offer)),
   );
 
   const buckets = new Map<string, SavingsOffer[]>();

@@ -91,6 +91,6 @@ describe("activity milestones", () => {
     const collapsed = collapseActivity(lines);
     assert.ok(collapsed.length <= 3);
     assert.ok(collapsed.every((line) => !/cookie banner|Click search/i.test(line.text)));
-    assert.ok(collapsed.some((line) => /opening the provider|searching for the property/.test(line.text)));
+    assert.ok(collapsed.some((line) => /Checking Booking.com|identifying the hotel/.test(line.text)));
   });
 });
