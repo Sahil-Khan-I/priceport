@@ -98,7 +98,10 @@ export function getMarket(code) {
   return INVESTIGATION_MARKETS.find((m) => m.code === code) || null;
 }
 
-export function resolveMarketAccess(marketCode, preferredMethod = null) {
+export function resolveMarketAccess(
+  marketCode: string,
+  preferredMethod: string | null = null,
+) {
   const market = getMarket(marketCode);
   if (!market) {
     return {

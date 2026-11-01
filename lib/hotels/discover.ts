@@ -5,7 +5,19 @@ import { isTinyFishConfigured } from "@/lib/tinyfish/config";
 /**
  * Discover hotel candidates via TinyFish Search — no hardcoded listings.
  */
-export async function discoverHotels({ query, location = "US", directUrl = null }) {
+export async function discoverHotels({
+  query,
+  location = "US",
+  directUrl = null,
+  destination = null,
+  limit = 8,
+}: {
+  query?: string;
+  location?: string;
+  directUrl?: string | null;
+  destination?: string | null;
+  limit?: number;
+}) {
   if (directUrl) {
     const safe = assertSafeHttpUrl(directUrl);
     return {
@@ -15,12 +27,15 @@ export async function discoverHotels({ query, location = "US", directUrl = null 
         {
           id: `url_${hash(safe)}`,
           name: inferNameFromUrl(safe) || "Property from URL",
-          location: null,
+          location: destination || null,
           address: null,
           providerUrl: safe,
           officialWebsite: null,
-          evidence: ["User-supplied direct URL"],
+          evidence: [
+            "User-supplied direct URL — discovery hint, not verified identity",
+          ],
           snippet: null,
+          discoverySource: "direct_url",
         },
       ],
     };
@@ -41,13 +56,21 @@ export async function discoverHotels({ query, location = "US", directUrl = null 
     };
   }
 
+  const dest = String(destination || "").trim();
+  const searchQuery = dest
+    ? `${q} hotel in ${dest} official site OR booking`
+    : `${q} hotel official site OR booking`;
+
   const response = await searchProviders({
-    query: `${q} hotel official site OR booking`,
+    query: searchQuery,
     location,
     language: "en",
   });
 
-  const results = mapSearchResults(response, q);
+  const results = mapSearchResults(response, q, dest).slice(
+    0,
+    Math.max(1, Math.min(Number(limit) || 8, 12)),
+  );
 
   return {
     configured: true,
@@ -55,11 +78,12 @@ export async function discoverHotels({ query, location = "US", directUrl = null 
     results,
     rawMeta: {
       resultCount: results.length,
+      query: searchQuery,
     },
   };
 }
 
-function mapSearchResults(response, query) {
+function mapSearchResults(response: any, query: string, destination?: string) {
   const items =
     response?.results ||
     response?.organic ||
@@ -70,7 +94,7 @@ function mapSearchResults(response, query) {
   if (!Array.isArray(items)) return [];
 
   return items
-    .map((item, index) => {
+    .map((item: any, index: number) => {
       const url =
         item.url || item.link || item.href || item.source_url || item.sourceUrl || null;
       let safeUrl = null;
@@ -96,6 +120,7 @@ function mapSearchResults(response, query) {
           item.location ||
           item.city ||
           item.region ||
+          destination ||
           extractLocationHint(item.snippet || item.description || "") ||
           null,
         address: item.address || null,
@@ -105,8 +130,11 @@ function mapSearchResults(response, query) {
           item.snippet || item.description || null,
           safeUrl ? `Source: ${safeUrl}` : null,
           `Matched query: ${query}`,
+          destination ? `Destination context: ${destination}` : null,
+          "Discovery candidate — not yet identity-verified",
         ].filter(Boolean),
         snippet: item.snippet || item.description || null,
+        discoverySource: "tinyfish_search",
       };
     })
     .filter((row) => row.providerUrl || row.name);

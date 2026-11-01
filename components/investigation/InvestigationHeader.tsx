@@ -2,8 +2,12 @@ import Badge from "@/components/ui/Badge";
 
 export default function InvestigationHeader({
   title = "Investigation Room",
-  subtitle = "Watch autonomous agents investigate providers and markets.",
-  preview = true,
+  subtitle = "Watch TinyFish agents investigate providers and markets in real time.",
+  live = true,
+}: {
+  title?: string;
+  subtitle?: string;
+  live?: boolean;
 }) {
   return (
     <div className="flex flex-wrap items-end justify-between gap-4">
@@ -16,9 +20,7 @@ export default function InvestigationHeader({
         </h1>
         <p className="mt-3 max-w-2xl text-sm text-white/60">{subtitle}</p>
       </div>
-      {preview ? (
-        <Badge tone="dark">Preview surface · live runs in Phase 02</Badge>
-      ) : null}
+      {live ? <Badge tone="dark">Live TinyFish investigation</Badge> : null}
     </div>
   );
 }

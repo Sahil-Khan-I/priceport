@@ -148,6 +148,66 @@ export function compareRoomConditions(
   };
 }
 
+/**
+ * Classify room similarity against a reference room string (requested or baseline).
+ * Never invent a match when either side is missing.
+ */
+export function classifyRoomMatch(requestedRoom, extractedRoom) {
+  const a = normalizeLoose(requestedRoom);
+  const b = normalizeLoose(extractedRoom);
+  if (!a && !b) return { status: "unknown", reasons: ["Room type not established"] };
+  if (!a || !b) {
+    return {
+      status: "unknown",
+      reasons: ["Room type missing on one side — cannot claim a match"],
+    };
+  }
+  if (a === b) return { status: "exact", reasons: ["Exact room label match"] };
+  if (a.includes(b) || b.includes(a)) {
+    return { status: "similar", reasons: ["Partial room label containment"] };
+  }
+  const tokensA = new Set(a.split(" ").filter((t) => t.length > 2));
+  const tokensB = new Set(b.split(" ").filter((t) => t.length > 2));
+  const overlap = [...tokensA].filter((t) => tokensB.has(t)).length;
+  if (overlap >= 2) {
+    return { status: "similar", reasons: [`Shared room tokens: ${overlap}`] };
+  }
+  return { status: "different", reasons: ["Room labels do not match"] };
+}
+
+export function classifyMealPlan(mealPlan) {
+  const value = normalizeLoose(mealPlan);
+  if (!value) return "unknown";
+  if (/breakfast|bb|bed and breakfast|includes breakfast/i.test(value)) {
+    return "breakfast_included";
+  }
+  if (/room only|no meals|self catering|accommodation only/i.test(value)) {
+    return "breakfast_not_included";
+  }
+  if (/half board|full board|all inclusive|dinner|lunch/i.test(value)) {
+    return "other_meal_plan";
+  }
+  return "unknown";
+}
+
+export function classifyCancellation(policy, refundable = null) {
+  if (typeof refundable === "boolean") {
+    return refundable ? "refundable" : "non_refundable";
+  }
+  const value = normalizeLoose(policy);
+  if (!value) return "unknown";
+  if (/non[-\s]?refundable|no refund|non refundable/i.test(value)) {
+    return "non_refundable";
+  }
+  if (/partial(ly)? refund|partial cancellation/i.test(value)) {
+    return "partially_refundable";
+  }
+  if (/free cancellation|fully refundable|refundable|cancel free/i.test(value)) {
+    return "refundable";
+  }
+  return "unknown";
+}
+
 function normalizeName(value) {
   return String(value || "")
     .toLowerCase()

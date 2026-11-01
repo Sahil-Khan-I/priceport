@@ -13,6 +13,9 @@ export function validateDiscoverRequest(body: any = {}) {
       query,
       directUrl: directUrl || null,
       location: body.location || "US",
+      destination:
+        typeof body.destination === "string" ? body.destination.trim() : null,
+      limit: Number.isFinite(Number(body.limit)) ? Number(body.limit) : 8,
     },
   };
 }

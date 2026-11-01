@@ -11,6 +11,7 @@ import {
 import { agentQueue } from "./queue";
 import { normalizeJobOffer } from "./normalize-offer";
 import { rankOffers } from "@/lib/pricing/ranking";
+import { recordOfferObservation } from "@/lib/storage/observations-store";
 import { JOB_STATUS, mapTinyFishEventToStatus } from "./status";
 
 const running = new Set();
@@ -209,8 +210,20 @@ async function finalizeInvestigation(investigationId) {
   const ranking = await rankOffers(
     offers,
     finalRec.request.preferredCurrency || "USD",
+    { homeCountry: finalRec.request.homeCountry || null },
   );
   const nextStatus = deriveStatus(finalRec.jobs);
+
+  for (const offer of offers) {
+    try {
+      await recordOfferObservation({
+        offer,
+        investigationId,
+      });
+    } catch {
+      // Observation persistence must not block finalization.
+    }
+  }
 
   await updateInvestigation(investigationId, (rec) => {
     if (["completed", "failed", "partial"].includes(rec.status)) {
@@ -221,6 +234,9 @@ async function finalizeInvestigation(investigationId) {
     rec.ranking = {
       lowestComparableId: ranking.lowestComparable?.id || null,
       cheapestBookableId: ranking.cheapestBookable?.id || null,
+      bestVerifiedOfferId: ranking.bestVerified?.id || null,
+      lowestDisplayedId: ranking.lowestDisplayed?.id || null,
+      decision: ranking.decision,
       roomDiffNotes: ranking.roomDiffNotes,
     };
     rec.summary = summarize(rec.jobs);
@@ -338,6 +354,7 @@ async function executeJob(investigationId, jobId) {
       runResult: completePayload?.result,
       tinyfishRunId: completePayload?.run_id || latestJob.tinyfishRunId,
       raw: completePayload?.result ?? null,
+      homeCountry: request.homeCountry || null,
     });
 
     const extractionOk =

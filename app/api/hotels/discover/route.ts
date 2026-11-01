@@ -11,7 +11,13 @@ export async function POST(request) {
       return NextResponse.json({ error: parsed.errors.join("; ") }, { status: 400 });
     }
 
-    const result = await discoverHotels(parsed.value);
+    const result = await discoverHotels({
+      query: parsed.value.query,
+      directUrl: parsed.value.directUrl,
+      location: parsed.value.location,
+      destination: parsed.value.destination,
+      limit: parsed.value.limit,
+    });
     return NextResponse.json(result);
   } catch (error) {
     const tf = toTinyFishError(error);

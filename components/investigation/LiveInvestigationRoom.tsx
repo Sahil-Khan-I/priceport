@@ -26,6 +26,7 @@ export default function LiveInvestigationRoom({
   const [data, setData] = useState<InvestigationPayload | null>(null);
   const [error, setError] = useState("");
   const [events, setEvents] = useState<any[]>([]);
+  const [actionBusy, setActionBusy] = useState("");
 
   useEffect(() => {
     let cancelled = false;
@@ -109,7 +110,41 @@ export default function LiveInvestigationRoom({
 
   const done = ["completed", "failed", "partial"].includes(data?.status || "");
 
-  if (error) {
+  async function cancelInvestigation() {
+    setActionBusy("cancel");
+    try {
+      const response = await fetch(`/api/investigations/${investigationId}/cancel`, {
+        method: "POST",
+      });
+      const json = await response.json();
+      if (!response.ok) throw new Error(json.error || "Cancel failed");
+      setData((prev) => (prev ? { ...prev, status: json.status, summary: json.summary } : prev));
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Cancel failed");
+    } finally {
+      setActionBusy("");
+    }
+  }
+
+  async function retryFailed() {
+    setActionBusy("retry");
+    try {
+      const response = await fetch(`/api/investigations/${investigationId}/retry`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({}),
+      });
+      const json = await response.json();
+      if (!response.ok) throw new Error(json.error || "Retry failed");
+      setData((prev) => (prev ? { ...prev, status: json.status, summary: json.summary } : prev));
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Retry failed");
+    } finally {
+      setActionBusy("");
+    }
+  }
+
+  if (error && !data) {
     return (
       <Container className="py-16">
         <p className="text-pp-coral">{error}</p>
@@ -150,6 +185,24 @@ export default function LiveInvestigationRoom({
             <Badge tone="dark">
               {data.summary?.completed || 0}/{data.summary?.total || 0} completed
             </Badge>
+            {!done ? (
+              <Button
+                variant="dark"
+                onClick={cancelInvestigation}
+                disabled={actionBusy === "cancel"}
+              >
+                {actionBusy === "cancel" ? "Cancelling…" : "Cancel queued"}
+              </Button>
+            ) : null}
+            {(data.summary?.failed || 0) > 0 ? (
+              <Button
+                variant="dark"
+                onClick={retryFailed}
+                disabled={actionBusy === "retry"}
+              >
+                {actionBusy === "retry" ? "Retrying…" : "Retry failed"}
+              </Button>
+            ) : null}
             {done ? (
               <Button href={`/results/${data.id}`} variant="dark">
                 View results
@@ -191,9 +244,26 @@ export default function LiveInvestigationRoom({
                   <p className="mt-3 text-sm text-white">
                     {job.offer.currency} {job.offer.totalPrice}
                     <span className="ml-2 text-xs text-white/45">
-                      match {job.offer.propertyMatch}
+                      match {job.offer.propertyMatch} · verify{" "}
+                      {job.offer.verificationStatus || "—"}
                     </span>
                   </p>
+                ) : null}
+                {job.offer?.roomType ? (
+                  <p className="mt-2 text-xs text-white/45">
+                    Room {job.offer.roomType}
+                    {job.offer.mealPlan ? ` · ${job.offer.mealPlan}` : ""}
+                  </p>
+                ) : null}
+                {job.sourceUrl ? (
+                  <a
+                    href={job.sourceUrl}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="mt-2 inline-block text-xs text-pp-accent hover:underline"
+                  >
+                    Source URL
+                  </a>
                 ) : null}
               </article>
             ))}

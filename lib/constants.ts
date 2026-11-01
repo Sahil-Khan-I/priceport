@@ -22,10 +22,10 @@ export const SITE = {
 };
 
 export const NAV_LINKS = [
+  { href: "/search", label: "Search" },
+  { href: "/tracks", label: "Tracks" },
   { href: "#how-it-works", label: "How it works" },
   { href: "#market-lens", label: "Market Lens" },
-  { href: "#investigation", label: "Investigation" },
-  { href: "#features", label: "Features" },
 ];
 
 export const PROVIDERS = [
