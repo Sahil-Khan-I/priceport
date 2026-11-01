@@ -12,7 +12,8 @@ import { agentQueue } from "./queue";
 import { normalizeJobOffer } from "./normalize-offer";
 import { rankOffers } from "@/lib/pricing/ranking";
 import { recordOfferObservation } from "@/lib/storage/observations-store";
-import { JOB_STATUS, mapTinyFishEventToStatus } from "./status";
+import { resolveStreamOutcome } from "./lifecycle";
+import { JOB_STATUS, JOB_TIMEOUT_MS, mapTinyFishEventToStatus } from "./status";
 import { expandPairs, filterNewPairs, pairKey } from "./job-plan";
 import { getMarket } from "@/lib/markets/config";
 
@@ -385,6 +386,13 @@ async function executeJob(investigationId, jobId) {
     jobId,
   });
 
+  const abort = new AbortController();
+  let timedOut = false;
+  const timer = setTimeout(() => {
+    timedOut = true;
+    abort.abort();
+  }, JOB_TIMEOUT_MS);
+
   try {
     let completePayload: any = null;
 
@@ -396,6 +404,7 @@ async function executeJob(investigationId, jobId) {
         browserProfile: job.browserProfile,
         proxyCountryCode: job.actualProxyCountry,
         requireProxy: job.requireProxy,
+        signal: abort.signal,
       },
       {
         onStarted: async (event) => {
@@ -413,6 +422,8 @@ async function executeJob(investigationId, jobId) {
         onStreamingUrl: async (event) => {
           await patchJob(investigationId, jobId, {
             streamingUrl: event.streaming_url || null,
+            browserSessionStatus: "streaming",
+            extractionStatus: "pending",
           });
           await pushEvent(investigationId, {
             type: "STREAMING_URL",
@@ -423,7 +434,12 @@ async function executeJob(investigationId, jobId) {
         },
         onProgress: async (event) => {
           const next = mapTinyFishEventToStatus("PROGRESS", event.purpose);
-          if (next) await patchJob(investigationId, jobId, { status: next });
+          if (next) {
+            await patchJob(investigationId, jobId, {
+              status: next,
+              extractionStatus: next === JOB_STATUS.EXTRACTING ? "extracting" : undefined,
+            });
+          }
           await pushEvent(investigationId, {
             type: "PROGRESS",
             message: event.purpose || "Agent progress",
@@ -445,14 +461,14 @@ async function executeJob(investigationId, jobId) {
     const latestJob = latest.jobs.find((j) => j.id === jobId);
     const request = latest.request;
 
-    const status = String(completePayload?.status || "").toUpperCase();
-    if (status !== "COMPLETED") {
+    const outcome = resolveStreamOutcome(completePayload);
+    if (!completePayload || outcome.status !== JOB_STATUS.COMPLETED) {
       await patchJob(investigationId, jobId, {
-        status: JOB_STATUS.FAILED,
+        status: outcome.status,
+        browserSessionStatus: outcome.browserSessionStatus,
+        extractionStatus: outcome.extractionStatus,
         finishedAt: new Date().toISOString(),
-        error:
-          completePayload?.error?.message ||
-          "Investigation failed. No verified price was returned.",
+        error: outcome.error,
         tinyfishRunId:
           completePayload?.run_id || latestJob.tinyfishRunId || null,
         raw: completePayload || null,
@@ -483,6 +499,14 @@ async function executeJob(investigationId, jobId) {
 
     await patchJob(investigationId, jobId, {
       status: extractionOk ? JOB_STATUS.COMPLETED : JOB_STATUS.FAILED,
+      browserSessionStatus: "finished",
+      extractionStatus: extractionOk
+        ? offer.totalPrice != null || offer.nightlyPrice != null || offer.displayedUnscoped != null
+          ? "extracted"
+          : "no_offer"
+        : offer.propertyMatch === "unmatched"
+          ? "no_offer"
+          : "invalid_output",
       finishedAt: new Date().toISOString(),
       tinyfishRunId: offer.tinyfishRunId,
       sourceUrl: offer.sourceUrl || latestJob.url,
@@ -503,23 +527,36 @@ async function executeJob(investigationId, jobId) {
     });
   } catch (error) {
     await patchJob(investigationId, jobId, {
-      status: JOB_STATUS.FAILED,
+      status: timedOut ? JOB_STATUS.TIMED_OUT : JOB_STATUS.FAILED,
+      browserSessionStatus: timedOut ? "expired" : "finished",
+      extractionStatus: "failed",
       finishedAt: new Date().toISOString(),
-      error: error instanceof Error ? error.message : "Agent execution failed",
+      error: timedOut
+        ? "This check timed out before a price was extracted."
+        : error instanceof Error
+          ? error.message
+          : "Agent execution failed",
     });
     await pushEvent(investigationId, {
       type: "ERROR",
       message: error instanceof Error ? error.message : "Agent execution failed",
       jobId,
     });
+  } finally {
+    clearTimeout(timer);
   }
 }
 
 async function patchJob(investigationId, jobId, patch) {
   return updateInvestigation(investigationId, (rec) => {
-    rec.jobs = rec.jobs.map((job) =>
-      job.id === jobId ? { ...job, ...patch } : job,
-    );
+    rec.jobs = rec.jobs.map((job) => {
+      if (job.id !== jobId) return job;
+      const next = { ...job };
+      for (const [key, value] of Object.entries(patch)) {
+        if (value !== undefined) next[key] = value;
+      }
+      return next;
+    });
     rec.summary = summarize(rec.jobs);
     return rec;
   });
@@ -550,7 +587,9 @@ function summarize(jobs) {
       ].includes(j.status),
     ).length,
     completed: jobs.filter((j) => j.status === JOB_STATUS.COMPLETED).length,
-    failed: jobs.filter((j) => j.status === JOB_STATUS.FAILED).length,
+    failed: jobs.filter((j) =>
+      [JOB_STATUS.FAILED, JOB_STATUS.TIMED_OUT].includes(j.status),
+    ).length,
     unsupported: jobs.filter((j) => j.status === JOB_STATUS.UNSUPPORTED)
       .length,
   };
@@ -569,7 +608,9 @@ function deriveStatus(jobs) {
   );
   if (active) return "running";
   const completed = jobs.filter((j) => j.status === JOB_STATUS.COMPLETED).length;
-  const failed = jobs.filter((j) => j.status === JOB_STATUS.FAILED).length;
+  const failed = jobs.filter((j) =>
+    [JOB_STATUS.FAILED, JOB_STATUS.TIMED_OUT].includes(j.status),
+  ).length;
   if (completed > 0 && failed > 0) return "partial";
   if (completed > 0) return "completed";
   return "failed";

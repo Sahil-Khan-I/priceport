@@ -190,6 +190,175 @@ export function classifyMealPlan(mealPlan) {
   return "unknown";
 }
 
+const CATEGORY_TOKENS: Record<string, string[]> = {
+  standard: ["standard", "classic"],
+  superior: ["superior"],
+  deluxe: ["deluxe"],
+  premium: ["premium"],
+  executive: ["executive"],
+  junior_suite: ["junior suite"],
+  suite: ["suite"],
+  family: ["family"],
+  apartment: ["apartment", "aparthotel"],
+  villa: ["villa"],
+};
+
+const BED_TOKENS: Record<string, string[]> = {
+  king: ["king"],
+  queen: ["queen"],
+  twin: ["twin"],
+  double: ["double"],
+  single: ["single"],
+};
+
+/**
+ * Compare a requested preference with one extracted offer.
+ * "Any" preferences are accepted, but they are not described as an exact match.
+ */
+export function classifyComparison({
+  preferences = {},
+  roomType = null,
+  bedConfiguration = null,
+  mealPlan = null,
+  mealPlanStatus = "unknown",
+  cancellationStatus = "unknown",
+  stayDifferences = [],
+  stayUnknowns = [],
+}: {
+  preferences?: Record<string, unknown> | null;
+  roomType?: string | null;
+  bedConfiguration?: string | null;
+  mealPlan?: string | null;
+  mealPlanStatus?: string;
+  cancellationStatus?: string;
+  stayDifferences?: string[];
+  stayUnknowns?: string[];
+} = {}) {
+  const reasons: string[] = [];
+  if (stayDifferences.length) {
+    return { status: "not_comparable", reasons: [...stayDifferences] };
+  }
+
+  const category = cleanPref(preferences?.category);
+  const bed = cleanPref(preferences?.bedType);
+  const meal = cleanPref(preferences?.mealPlan);
+  const cancellation = cleanPref(preferences?.cancellationPreference);
+  const roomText = normalizeLoose([roomType, bedConfiguration].filter(Boolean).join(" "));
+  let hard = false;
+  let soft = false;
+  let missing = false;
+
+  if (category) {
+    const match = categoryMatch(category, roomText);
+    if (match === "missing") {
+      missing = true;
+      reasons.push("Room category was not identified");
+    } else if (match === "no") {
+      hard = true;
+      reasons.push("Room category does not match the request");
+    } else {
+      reasons.push("Room category matches");
+    }
+  }
+
+  if (bed) {
+    const haystack = normalizeLoose(bedConfiguration) || roomText;
+    const tokens = BED_TOKENS[bed] || [bed];
+    if (!haystack) {
+      missing = true;
+      reasons.push("Bed configuration was not identified");
+    } else if (!tokens.some((token) => haystack.includes(token))) {
+      hard = true;
+      reasons.push("Bed configuration does not match the request");
+    } else {
+      reasons.push("Bed configuration matches");
+    }
+  }
+
+  if (meal) {
+    const expected = expectedMeal(meal);
+    if (!mealPlan && mealPlanStatus === "unknown") {
+      missing = true;
+      reasons.push("Meal plan was not identified");
+    } else if (expected && mealPlanStatus !== expected && !mealTextMatches(meal, mealPlan)) {
+      hard = true;
+      reasons.push("Meal plan does not match the request");
+    } else {
+      reasons.push("Meal plan matches");
+    }
+  }
+
+  if (cancellation === "refundable_only") {
+    if (cancellationStatus === "unknown") {
+      missing = true;
+      reasons.push("Cancellation terms were not identified");
+    } else if (cancellationStatus !== "refundable") {
+      hard = true;
+      reasons.push("Offer is not refundable");
+    }
+  } else if (
+    cancellation === "free_cancellation_preferred" &&
+    cancellationStatus === "non_refundable"
+  ) {
+    soft = true;
+    reasons.push("Non-refundable, while free cancellation was preferred");
+  }
+
+  if (hard) return { status: "not_comparable", reasons };
+  if (!roomType && (category || bed)) {
+    return { status: "insufficient_data", reasons: [...reasons, "Room name missing"] };
+  }
+
+  const specific = Boolean(category || bed || meal || cancellation === "refundable_only");
+  if (stayUnknowns.length) {
+    reasons.push("Some stay details were not reported");
+    return { status: missing || !specific ? "partially_comparable" : "partially_comparable", reasons };
+  }
+  if (missing || soft) return { status: "partially_comparable", reasons };
+  if (!specific) {
+    return {
+      status: roomType ? "comparable" : "insufficient_data",
+      reasons: roomType
+        ? ["Any room was accepted. This is not an exact requested-room match."]
+        : ["Room was not identified"],
+    };
+  }
+  return { status: "exact_match", reasons };
+}
+
+function categoryMatch(category: string, roomText: string) {
+  if (!roomText) return "missing";
+  if (category === "suite" && roomText.includes("junior")) return "no";
+  if (category === "junior_suite") {
+    return roomText.includes("junior") && roomText.includes("suite") ? "yes" : "no";
+  }
+  const tokens = CATEGORY_TOKENS[category] || [category.replace(/_/g, " ")];
+  return tokens.some((token) => roomText.includes(token)) ? "yes" : "no";
+}
+
+function expectedMeal(meal: string) {
+  if (meal === "breakfast") return "breakfast_included";
+  if (meal === "room_only") return "breakfast_not_included";
+  if (meal === "half_board" || meal === "full_board" || meal === "all_inclusive") {
+    return "other_meal_plan";
+  }
+  return null;
+}
+
+function mealTextMatches(meal: string, mealPlan: string | null) {
+  const text = normalizeLoose(mealPlan);
+  if (!text) return false;
+  if (meal === "half_board") return /half board/.test(text);
+  if (meal === "full_board") return /full board/.test(text);
+  if (meal === "all_inclusive") return /all inclusive/.test(text);
+  return false;
+}
+
+function cleanPref(value: unknown) {
+  const text = normalizeLoose(value);
+  return !text || text === "any" || text === "null" ? "" : text;
+}
+
 export function classifyCancellation(policy, refundable = null) {
   if (typeof refundable === "boolean") {
     return refundable ? "refundable" : "non_refundable";

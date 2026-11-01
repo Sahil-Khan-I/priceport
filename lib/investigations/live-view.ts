@@ -3,8 +3,16 @@
  * Derived only from persisted jobs and events — no invented progress.
  */
 
-const TERMINAL = new Set(["completed", "failed", "unsupported", "cancelled"]);
-const RUNNING = new Set(["running", "starting", "in_progress"]);
+const TERMINAL = new Set(["completed", "failed", "timed_out", "unsupported", "cancelled"]);
+const RUNNING = new Set([
+  "running",
+  "starting",
+  "in_progress",
+  "navigating",
+  "searching",
+  "extracting",
+  "verifying",
+]);
 const WAITING = new Set(["queued", "pending"]);
 
 const STATUS_RANK: Record<string, number> = {
@@ -12,9 +20,14 @@ const STATUS_RANK: Record<string, number> = {
   pending: 0,
   starting: 1,
   in_progress: 2,
+  navigating: 2,
+  searching: 2,
+  extracting: 2,
+  verifying: 2,
   running: 2,
   completed: 3,
   failed: 3,
+  timed_out: 3,
   unsupported: 3,
   cancelled: 3,
 };
@@ -62,7 +75,7 @@ export function summarizeProgress(jobs: LiveJob[] = []) {
   const researching = jobs.filter((j) => RUNNING.has(String(j.status))).length;
   const waiting = jobs.filter((j) => WAITING.has(String(j.status))).length;
   const attention = jobs.filter((j) =>
-    ["failed", "unsupported", "cancelled"].includes(String(j.status)),
+    ["failed", "timed_out", "unsupported", "cancelled"].includes(String(j.status)),
   ).length;
   const terminal = jobs.filter((j) => TERMINAL.has(String(j.status))).length;
   const offers = jobs.filter((j) => hasOffer(j)).length;

@@ -601,6 +601,28 @@ const TAG_TONE = {
   slate: "bg-slate-100 text-slate-700",
 } as const;
 
+function originalAmount(offer: { currency?: string | null }, amount: number | null) {
+  if (amount == null) return "Provider price unavailable";
+  if (!offer.currency) return `${amount} (currency not reported)`;
+  return formatMoney(amount, offer.currency);
+}
+
+function priceBasisLabel(basis?: string | null) {
+  if (basis === "per_night") return "Per night";
+  if (basis === "per_room_per_night") return "Per room per night";
+  if (basis === "total_stay") return "Total stay";
+  if (basis === "per_person") return "Per person";
+  return "Price basis unknown";
+}
+
+function comparisonLabel(value?: string | null) {
+  if (value === "exact_match") return "Exact room match";
+  if (value === "comparable") return "Comparable";
+  if (value === "partially_comparable") return "Partly comparable";
+  if (value === "not_comparable") return "Not comparable";
+  return "Not enough room evidence";
+}
+
 function taxesLine(offer: any) {
   const taxes = offer.taxes;
   const fees = offer.mandatoryFees;
@@ -655,12 +677,24 @@ function OfferCard({
 
         <div className="mt-4">
           <p className="text-3xl font-semibold tabular-nums tracking-tight text-pp-text">
-            {converted ? formatMoney(offer.conversion.amount, currency) : offer.totalPrice != null ? formatMoney(offer.totalPrice, offer.currency || currency) : "Price unavailable"}
+            {converted
+              ? formatMoney(offer.conversion.amount, currency)
+              : offer.displayedUnscoped != null
+                ? originalAmount(offer, offer.displayedUnscoped)
+                : offer.nightlyPrice != null
+                  ? originalAmount(offer, offer.nightlyPrice)
+                  : offer.totalPrice != null
+                    ? originalAmount(offer, offer.totalPrice)
+                    : "Price unavailable"}
           </p>
           <p className="mt-1 text-xs text-pp-muted">
             {converted
-              ? `Converted from ${offer.totalPrice != null ? formatMoney(offer.totalPrice, offer.currency || currency) : "provider price"} · ${offer.conversion.source || "FX source unavailable"}`
-              : offer.conversion?.reason || "Shown in the provider currency. Conversion unavailable."}
+              ? `Converted from ${originalAmount(offer, offer.totalPrice ?? offer.displayedUnscoped ?? offer.nightlyPrice)} · ${offer.conversion.source || "FX source unavailable"}`
+              : offer.priceNote || offer.conversion?.reason || "Shown in the provider currency. Conversion unavailable."}
+          </p>
+          <p className="mt-1 text-xs text-pp-muted">
+            {priceBasisLabel(offer.priceBasis)} · {comparisonLabel(offer.comparisonClass)}
+            {offer.totalStatus ? ` · ${offer.totalStatus} total` : ""}
           </p>
           {offer.perNight?.converted != null || offer.perNight?.original != null ? (
             <p className="mt-1 text-sm tabular-nums text-pp-text">
@@ -674,7 +708,7 @@ function OfferCard({
 
         <dl className="mt-4 grid grid-cols-[88px_1fr] gap-x-3 gap-y-1.5 text-xs">
           <dt className="text-pp-muted">Room</dt>
-          <dd className="text-pp-text">{offer.roomType || "Not identified"}</dd>
+          <dd className="text-pp-text">{offer.roomType || "Not identified"} · {comparisonLabel(offer.comparisonClass)}</dd>
           <dt className="text-pp-muted">Meals</dt>
           <dd className="text-pp-text">{offer.mealPlan || "Unknown"}</dd>
           <dt className="text-pp-muted">Cancellation</dt>

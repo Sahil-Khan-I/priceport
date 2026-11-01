@@ -5,11 +5,14 @@ import {
   classifyRoomMatch,
   classifyMealPlan,
   classifyCancellation,
+  classifyComparison,
 } from "@/lib/hotels/matching";
 import { calculateTrueCost } from "@/lib/pricing/true-cost";
 import { assessEligibility } from "@/lib/pricing/eligibility";
 import { assessBookingRisk } from "@/lib/pricing/risk";
 import { classifyOffer } from "@/lib/offers/validate";
+import { interpretPrice } from "@/lib/pricing/price-basis";
+import { stayNights } from "@/lib/pricing/savings";
 
 export function normalizeJobOffer({
   job,
@@ -28,7 +31,7 @@ export function normalizeJobOffer({
   raw?: unknown;
   homeCountry?: string | null;
 }) {
-  const payload = unwrap(runResult);
+  const payload = selectPrimaryRoom(unwrap(runResult), bookingDetails?.roomPreferences);
   const match = matchProperty(hotel, payload || {});
 
   const basePrice = num(payload?.basePrice ?? payload?.base_price);
@@ -51,14 +54,27 @@ export function normalizeJobOffer({
       ? payload.unknown_fees
       : [];
 
+  const nights =
+    num(payload?.nightsExtracted ?? payload?.nights) ||
+    stayNights(bookingDetails?.checkIn, bookingDetails?.checkOut);
+  const interpreted = interpretPrice({
+    priceBasis: payload?.priceBasis ?? payload?.price_basis,
+    nightlyPrice: num(payload?.nightlyPrice ?? payload?.nightly_price),
+    totalPrice,
+    nights,
+    rooms: bookingDetails?.rooms,
+  });
   const trueCost = calculateTrueCost({
     basePrice,
     taxes,
     mandatoryFees,
     estimatedFees,
     unknownFees,
-    totalPrice,
-    totalStatus: payload?.totalStatus || payload?.total_status,
+    totalPrice: interpreted.stayTotal,
+    totalStatus:
+      interpreted.stayTotal == null
+        ? "incomplete"
+        : payload?.totalStatus || payload?.total_status,
   });
 
   const propertyMatch =
@@ -74,7 +90,8 @@ export function normalizeJobOffer({
   const refundable =
     typeof payload?.refundable === "boolean" ? payload.refundable : null;
 
-  const roomMatch = classifyRoomMatch(null, roomType).status;
+  const requestedRoom = requestedRoomLabel(bookingDetails?.roomPreferences);
+  const roomMatch = classifyRoomMatch(requestedRoom, roomType).status;
   const mealPlanStatus = classifyMealPlan(mealPlan);
   const cancellationStatus = classifyCancellation(
     cancellationPolicy,
@@ -87,6 +104,17 @@ export function normalizeJobOffer({
     adults: payload?.adultsExtracted ?? payload?.adults,
     children: payload?.childrenExtracted ?? payload?.children,
     rooms: payload?.roomsExtracted ?? payload?.rooms,
+  });
+
+  const comparison = classifyComparison({
+    preferences: bookingDetails?.roomPreferences,
+    roomType,
+    bedConfiguration: payload?.bedConfiguration ?? payload?.bed_configuration ?? null,
+    mealPlan,
+    mealPlanStatus,
+    cancellationStatus,
+    stayDifferences: bookingCompare.differences,
+    stayUnknowns: bookingCompare.unknowns,
   });
 
   const missingFields: string[] = [];
@@ -135,6 +163,12 @@ export function normalizeJobOffer({
     roomMatch,
     mealPlanStatus,
     cancellationStatus,
+    comparisonClass: comparison.status,
+    priceBasis: interpreted.priceBasis,
+    nightlyPrice: interpreted.nightlyPrice,
+    estimatedStayTotal: interpreted.estimatedStayTotal,
+    displayedUnscoped: interpreted.displayedUnscoped,
+    priceNote: interpreted.note,
     basePrice,
     currency: payload?.currency || "",
     taxes,
@@ -153,6 +187,8 @@ export function normalizeJobOffer({
       ...match.reasons.map((r: string) => `Match: ${r}`),
       ...bookingCompare.differences.map((d: string) => `Stay: ${d}`),
       ...bookingCompare.unknowns.map((u: string) => `Stay: ${u}`),
+      ...comparison.reasons.map((reason: string) => `Comparison: ${reason}`),
+      ...(interpreted.note ? [`Price: ${interpreted.note}`] : []),
     ],
     missingFields,
     tinyfishRunId: tinyfishRunId || "",
@@ -190,6 +226,60 @@ function unwrap(result: any) {
       : { value: result.result };
   }
   return result;
+}
+
+function selectPrimaryRoom(payload: any, preferences: any) {
+  if (!payload || !Array.isArray(payload.roomOptions) || payload.roomOptions.length === 0) {
+    return payload;
+  }
+  const ranked = [...payload.roomOptions].map((option) => {
+    const mealPlanStatus = classifyMealPlan(option?.mealPlan);
+    const cancellationStatus = classifyCancellation(
+      option?.cancellationPolicy,
+      option?.refundable,
+    );
+    const comparison = classifyComparison({
+      preferences,
+      roomType: option?.roomType,
+      bedConfiguration: option?.bedConfiguration,
+      mealPlan: option?.mealPlan,
+      mealPlanStatus,
+      cancellationStatus,
+    });
+    const rank =
+      comparison.status === "exact_match"
+        ? 0
+        : comparison.status === "comparable"
+          ? 1
+          : comparison.status === "partially_comparable"
+            ? 2
+            : comparison.status === "insufficient_data"
+              ? 3
+              : 4;
+    return { option, rank };
+  });
+  ranked.sort((a, b) => a.rank - b.rank);
+  const best = ranked[0]?.option;
+  if (!best || ranked[0].rank > 2) return payload;
+  return {
+    ...payload,
+    roomType: payload.roomType || best.roomType,
+    bedConfiguration: payload.bedConfiguration || best.bedConfiguration,
+    mealPlan: payload.mealPlan || best.mealPlan,
+    cancellationPolicy: payload.cancellationPolicy || best.cancellationPolicy,
+    nightlyPrice: payload.nightlyPrice ?? best.nightlyPrice,
+    totalPrice: payload.totalPrice ?? best.totalPrice,
+    currency: payload.currency || best.currency,
+    priceBasis: payload.priceBasis || best.priceBasis,
+    taxes: payload.taxes ?? best.taxes,
+    mandatoryFees: payload.mandatoryFees ?? best.mandatoryFees,
+  };
+}
+
+function requestedRoomLabel(preferences: any) {
+  if (!preferences) return null;
+  const parts = [preferences.category, preferences.bedType].filter(Boolean);
+  return parts.length ? parts.join(" ") : null;
 }
 
 function num(value: unknown): number | null {

@@ -1,4 +1,5 @@
 import { OFFER_OUTPUT_SCHEMA } from "@/lib/offers/schema";
+import { roomPreferenceGoalLines } from "@/lib/search/room-preferences";
 
 export const id = "booking";
 export const name = "Booking.com";
@@ -45,17 +46,25 @@ export function buildGoal({ hotel, bookingDetails, marketContext, providerLabel 
     `You are investigating a hotel booking on ${providerLabel}.`,
     `Find the exact property matching "${hotel.name}"${hotel.location ? ` in ${hotel.location}` : ""}.`,
     hotel.address ? `Address hint: ${hotel.address}.` : null,
-    `Search for a stay from ${checkIn} to ${checkOut}, for ${adults} adults` +
-      (children ? `, ${children} children` : "") +
-      (childrenAges?.length ? ` (ages: ${childrenAges.join(", ")})` : "") +
-      `, in ${rooms} room(s).`,
+    "Stay:",
+    `- Check-in: ${checkIn}`,
+    `- Check-out: ${checkOut}`,
+    `- Adults: ${adults}`,
+    children ? `- Children: ${children}${childrenAges?.length ? ` (ages: ${childrenAges.join(", ")})` : ""}` : "- Children: 0",
+    `- Rooms: ${rooms}`,
+    roomPreferenceGoalLines(bookingDetails.roomPreferences),
     marketContext.access_method === "storefront"
       ? `Prefer the regional storefront/market context for ${marketContext.selected_market} if the site exposes locale or currency options. Do not claim an IP geo investigation.`
       : marketContext.actual_proxy_country
         ? `This browser session may be proxied via ${marketContext.actual_proxy_country}.`
         : null,
-    "Retrieve available room options for the exact property.",
-    "Extract: room category, occupancy, meal plan, cancellation conditions, displayed base price, currency, taxes, mandatory fees, total price if established, availability, eligibility restrictions, and source URL.",
+    "First verify that the selected property is correct.",
+    "Then inspect the available room options and choose the best match for the requested preferences.",
+    "If an exact match is unavailable, still return the closest options in roomOptions and describe the differences. Do not silently substitute a cheaper room of a different category.",
+    "Extract priceBasis as per_night, per_room_per_night, total_stay, per_person, or unknown.",
+    "Put a nightly figure in nightlyPrice and a full-stay figure in totalPrice only when the page shows that basis. Do not copy a nightly price into totalPrice.",
+    "Extract currency exactly as displayed. Do not infer currency from the market.",
+    "Extract taxes, mandatory fees, meal plan, cancellation policy, refundability, availability, occupancy, dates, rooms, adults, children, and the actual source URL.",
     "Set propertyMatch to exact, probable, partial, unmatched, or unknown.",
     "Do not invent missing values. If the exact property cannot be found, set propertyMatch to unmatched and explain in notes.",
     "If pricing is unavailable, report null prices rather than estimating.",

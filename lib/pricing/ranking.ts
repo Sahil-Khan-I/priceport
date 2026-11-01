@@ -54,7 +54,11 @@ export async function rankOffers(
         comparable:
           trueCost.fullyComparable &&
           conversion.available &&
-          ["exact", "probable"].includes(offer.propertyMatch),
+          ["exact", "probable"].includes(offer.propertyMatch) &&
+          ["exact_match", "comparable"].includes(offer.comparisonClass || "comparable") &&
+          (offer.priceBasis == null ||
+            offer.priceBasis === "unknown" ||
+            offer.priceBasis === "total_stay"),
       };
     }),
   );

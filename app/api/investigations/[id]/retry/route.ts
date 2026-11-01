@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { loadInvestigation, updateInvestigation } from "@/lib/storage/file-store";
 import { kick } from "@/lib/investigations/runner";
-import { JOB_STATUS } from "@/lib/investigations/status";
+import { planRetries } from "@/lib/investigations/lifecycle";
 import { randomUUID } from "node:crypto";
 
 export async function POST(request, context) {
@@ -15,29 +15,28 @@ export async function POST(request, context) {
   }
 
   const updated = await updateInvestigation(id, (rec) => {
-    rec.jobs = rec.jobs.map((job) => {
-      const shouldRetry =
-        (jobIds ? jobIds.includes(job.id) : true) &&
-        [JOB_STATUS.FAILED, JOB_STATUS.TIMED_OUT].includes(job.status) &&
-        job.url &&
-        job.goal;
-
-      if (!shouldRetry) return job;
-
+    const additions = planRetries(rec.jobs, jobIds).map((plan) => {
+      const job = rec.jobs.find((item) => item.id === plan.replacesJobId);
       return {
         ...job,
-        status: JOB_STATUS.QUEUED,
+        id: `job_${randomUUID().replace(/-/g, "").slice(0, 12)}`,
+        status: plan.status,
         error: null,
         offer: null,
         raw: null,
         tinyfishRunId: null,
         streamingUrl: null,
+        sourceUrl: job.url,
         startedAt: null,
         finishedAt: null,
+        browserSessionStatus: "pending",
+        extractionStatus: "pending",
+        attempt: plan.attempt,
+        replacesJobId: plan.replacesJobId,
       };
     });
-
-    rec.status = "queued";
+    rec.jobs = [...rec.jobs, ...additions];
+    if (additions.length) rec.status = "queued";
     rec.events.push({
       id: `evt_${randomUUID().slice(0, 8)}`,
       type: "RETRY_REQUESTED",
@@ -48,7 +47,7 @@ export async function POST(request, context) {
     return rec;
   });
 
-  kick(id);
+  if (updated.jobs.length > existing.jobs.length) kick(id);
   return NextResponse.json({
     id: updated.id,
     status: updated.status,

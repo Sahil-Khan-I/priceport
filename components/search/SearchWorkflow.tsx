@@ -31,6 +31,17 @@ import {
   defaultStayDates,
   formatStaySummary,
 } from "@/lib/search/defaults";
+import {
+  BED_LABELS,
+  BED_TYPES,
+  CANCELLATION_LABELS,
+  CANCELLATION_PREFERENCES,
+  MEAL_LABELS,
+  MEAL_PLANS,
+  ROOM_CATEGORIES,
+  ROOM_CATEGORY_LABELS,
+  VIEW_PREFERENCES,
+} from "@/lib/search/room-preferences";
 
 const fieldClass =
   "w-full rounded-xl border border-pp-border bg-white px-4 py-3.5 text-[15px] text-pp-text outline-none transition duration-150 placeholder:text-pp-muted/65 hover:border-slate-300 focus:border-pp-accent focus:ring-4 focus:ring-pp-accent/10 disabled:cursor-not-allowed disabled:opacity-60";
@@ -83,6 +94,14 @@ export default function SearchWorkflow() {
   const [children, setChildren] = useState(0);
   const [childrenAges, setChildrenAges] = useState<number[]>([]);
   const [rooms, setRooms] = useState(1);
+  const [roomCategory, setRoomCategory] = useState("");
+  const [mealPlan, setMealPlan] = useState("");
+  const [morePrefs, setMorePrefs] = useState(false);
+  const [bedType, setBedType] = useState("");
+  const [cancellationPreference, setCancellationPreference] = useState("");
+  const [nonSmoking, setNonSmoking] = useState(false);
+  const [viewPreference, setViewPreference] = useState("");
+  const [accessible, setAccessible] = useState(false);
 
   const [homeCountry, setHomeCountry] = useState("IN");
   const [preferredCurrency, setPreferredCurrency] = useState("INR");
@@ -457,6 +476,15 @@ export default function SearchWorkflow() {
             children: Number(children),
             childrenAges,
             rooms: Number(rooms),
+          },
+          roomPreferences: {
+            category: roomCategory || null,
+            bedType: bedType || null,
+            mealPlan: mealPlan || null,
+            cancellationPreference: cancellationPreference || null,
+            smoking: nonSmoking ? "non_smoking" : null,
+            view: viewPreference || null,
+            accessibility: accessible ? true : null,
           },
           homeCountry,
           preferredCurrency,
@@ -899,6 +927,87 @@ export default function SearchWorkflow() {
                       </div>
                     ) : null}
                   </div>
+                  <div className="mt-4 grid gap-3 sm:grid-cols-2">
+                    <label className="text-xs font-semibold text-pp-text">
+                      Room preference
+                      <select
+                        value={roomCategory}
+                        onChange={(e) => setRoomCategory(e.target.value)}
+                        className={`mt-2 ${fieldClass}`}
+                      >
+                        <option value="">Any room</option>
+                        {ROOM_CATEGORIES.map((value) => (
+                          <option key={value} value={value}>{ROOM_CATEGORY_LABELS[value]}</option>
+                        ))}
+                      </select>
+                    </label>
+                    <label className="text-xs font-semibold text-pp-text">
+                      Meal preference
+                      <select
+                        value={mealPlan}
+                        onChange={(e) => setMealPlan(e.target.value)}
+                        className={`mt-2 ${fieldClass}`}
+                      >
+                        <option value="">Any meal plan</option>
+                        {MEAL_PLANS.map((value) => (
+                          <option key={value} value={value}>{MEAL_LABELS[value]}</option>
+                        ))}
+                      </select>
+                    </label>
+                  </div>
+                  <button
+                    type="button"
+                    className="mt-3 text-sm font-medium text-pp-accent"
+                    aria-expanded={morePrefs}
+                    onClick={() => setMorePrefs((open) => !open)}
+                  >
+                    {morePrefs ? "Hide preferences" : "More preferences"}
+                  </button>
+                  {morePrefs ? (
+                    <div className="mt-3 grid gap-3 sm:grid-cols-2">
+                      <label className="text-xs font-semibold text-pp-text">
+                        Bed
+                        <select value={bedType} onChange={(e) => setBedType(e.target.value)} className={`mt-2 ${fieldClass}`}>
+                          <option value="">Any bed</option>
+                          {BED_TYPES.map((value) => (
+                            <option key={value} value={value}>{BED_LABELS[value]}</option>
+                          ))}
+                        </select>
+                      </label>
+                      <label className="text-xs font-semibold text-pp-text">
+                        Cancellation
+                        <select
+                          value={cancellationPreference}
+                          onChange={(e) => setCancellationPreference(e.target.value)}
+                          className={`mt-2 ${fieldClass}`}
+                        >
+                          <option value="">Any policy</option>
+                          {CANCELLATION_PREFERENCES.map((value) => (
+                            <option key={value} value={value}>{CANCELLATION_LABELS[value]}</option>
+                          ))}
+                        </select>
+                      </label>
+                      <label className="text-xs font-semibold text-pp-text">
+                        View
+                        <select value={viewPreference} onChange={(e) => setViewPreference(e.target.value)} className={`mt-2 ${fieldClass}`}>
+                          <option value="">Any view</option>
+                          {VIEW_PREFERENCES.map((value) => (
+                            <option key={value} value={value}>{value === "sea" ? "Sea view" : value === "city" ? "City view" : "High floor"}</option>
+                          ))}
+                        </select>
+                      </label>
+                      <div className="flex flex-col justify-end gap-2 pb-1 text-sm text-pp-text">
+                        <label className="flex items-center gap-2">
+                          <input type="checkbox" checked={nonSmoking} onChange={(e) => setNonSmoking(e.target.checked)} />
+                          Non-smoking
+                        </label>
+                        <label className="flex items-center gap-2">
+                          <input type="checkbox" checked={accessible} onChange={(e) => setAccessible(e.target.checked)} />
+                          Accessible room
+                        </label>
+                      </div>
+                    </div>
+                  ) : null}
                   <div className="mt-4 flex flex-wrap items-center justify-between gap-2 border-t border-pp-border pt-4">
                     <div>
                       <p className="text-sm font-semibold text-pp-text">Ready for a first comparison</p>

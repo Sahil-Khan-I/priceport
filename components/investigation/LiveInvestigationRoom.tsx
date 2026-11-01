@@ -17,6 +17,7 @@ import {
   type LiveEvent,
   type LiveJob,
 } from "@/lib/investigations/live-view";
+import { describeRoomPreferences } from "@/lib/search/room-preferences";
 
 type InvestigationPayload = {
   id: string;
@@ -163,8 +164,16 @@ export default function LiveInvestigationRoom({
   const previewJob =
     previewJobs.find((job) => job.id === selectedPreviewJobId) || previewJobs[0] || null;
   const previewUrl = previewJob?.streamingUrl || null;
+  const sessionLive = Boolean(
+    previewJob &&
+      !["completed", "failed", "timed_out", "unsupported", "cancelled"].includes(
+        String(previewJob.status),
+      ),
+  );
   const running = !isTerminalInvestigation(data?.status);
-  const failedCount = jobs.filter((job) => job.status === "failed").length;
+  const failedCount = jobs.filter((job) =>
+    ["failed", "timed_out"].includes(String(job.status)),
+  ).length;
   const expanded = jobs.some((job) => (job as { stage?: string }).stage === "expanded");
   const stay = data?.request?.bookingDetails;
   const providers = [
@@ -270,7 +279,8 @@ export default function LiveInvestigationRoom({
                   ? `${stay.checkIn} – ${stay.checkOut}`
                   : null,
                 stay?.adults != null ? `${stay.adults} adults` : null,
-                stay?.rooms != null ? `${stay.rooms} room` : null,
+                stay?.rooms != null ? `${stay.rooms} room${stay.rooms === 1 ? "" : "s"}` : null,
+                describeRoomPreferences(data.request?.roomPreferences || stay?.roomPreferences),
               ]
                 .filter(Boolean)
                 .join(" · ")}
@@ -319,15 +329,20 @@ export default function LiveInvestigationRoom({
           <div className="flex flex-wrap items-center justify-between gap-3">
             <div>
               <h2 className="text-lg font-semibold text-pp-text">
-                {running ? "Researching your stay" : "Research finished"}
+                {progress.researching
+                  ? `${progress.researching} provider${progress.researching === 1 ? "" : "s"} still investigating`
+                  : running
+                    ? "Researching your stay"
+                    : "Research finished"}
               </h2>
               <p className="mt-1 max-w-xl text-sm text-pp-muted">
-                Priceport is checking the selected booking providers and comparing
-                their available offers.
+                {progress.terminal} of {progress.total} checks finished
+                {progress.offers ? ` · ${progress.offers} offers found` : ""}
+                {progress.comparable ? ` · ${progress.comparable} with a matched property` : ""}
               </p>
             </div>
             <p className="text-sm text-pp-text">
-              {progress.terminal} of {progress.total} investigations finished
+              {progress.terminal} of {progress.total} checks finished
             </p>
           </div>
           <div className="mt-4 h-2 overflow-hidden rounded-full bg-slate-100">
@@ -503,12 +518,14 @@ export default function LiveInvestigationRoom({
           <section className="mt-8 overflow-hidden rounded-2xl border border-slate-800 bg-[#111827] shadow-[0_18px_50px_rgba(15,23,42,0.16)]">
             <div className="flex flex-wrap items-center justify-between gap-3 border-b border-white/10 px-4 py-3 sm:px-5">
               <div className="flex items-center gap-3">
-                <span className="relative flex h-2.5 w-2.5">
-                  <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-400 opacity-50" />
+                  <span className={`relative flex h-2.5 w-2.5 ${sessionLive ? "" : "opacity-40"}`}>
+                  <span className={`absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-50 ${sessionLive ? "animate-ping" : ""}`} />
                   <span className="relative inline-flex h-2.5 w-2.5 rounded-full bg-emerald-400" />
                 </span>
                 <div>
-                  <p className="text-sm font-semibold text-white">Live browser session</p>
+                  <p className="text-sm font-semibold text-white">
+                    {sessionLive ? "Live browser session" : "Session finished"}
+                  </p>
                   <p className="mt-0.5 text-[11px] text-slate-400">
                     {previewJob
                       ? `${previewJob.providerName || previewJob.provider} · ${previewJob.market} · ${accessLabel(previewJob)}`
@@ -537,7 +554,7 @@ export default function LiveInvestigationRoom({
               </div>
             </div>
             <div className="bg-[#0b1220] p-2 sm:p-3">
-              {watchLive ? (
+              {watchLive && sessionLive ? (
                 <iframe
                   title={`TinyFish live browser — ${previewJob?.providerName || "provider"}`}
                   src={previewUrl}
@@ -547,8 +564,19 @@ export default function LiveInvestigationRoom({
               ) : (
                 <div className="flex min-h-44 flex-col items-center justify-center rounded-lg border border-white/10 bg-[radial-gradient(ellipse_at_center,_rgba(59,130,246,0.16),_transparent_65%)] px-5 py-8 text-center">
                   <div className="mb-3 flex h-11 w-11 items-center justify-center rounded-xl border border-white/10 bg-white/5 text-lg text-blue-300">↗</div>
-                  <p className="text-sm font-medium text-white">{previewJob?.providerName || "Booking provider"} is open in the research browser</p>
-                  <p className="mt-1 text-xs text-slate-400">The live session is available while the agent is working.</p>
+                  <p className="text-sm font-medium text-white">
+                    {sessionLive
+                      ? `${previewJob?.providerName || "Booking provider"} is open in the research browser`
+                      : "The live view has ended"}
+                  </p>
+                  <p className="mt-1 max-w-md text-xs text-slate-400">
+                    {sessionLive
+                      ? "The live session is available while the agent is working."
+                      : previewJob?.status === "timed_out"
+                        ? "This check timed out. A finished browser is not a verified price."
+                        : "The browser session ended. Pricing is shown only from the extracted result."}
+                  </p>
+                  {sessionLive ? (
                   <button
                     type="button"
                     onClick={() => setWatchLive(true)}
@@ -556,6 +584,7 @@ export default function LiveInvestigationRoom({
                   >
                     Watch live session
                   </button>
+                  ) : null}
                 </div>
               )}
             </div>

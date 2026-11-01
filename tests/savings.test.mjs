@@ -54,7 +54,7 @@ describe("calculateSavings", () => {
   it("refuses a figure with a single comparable offer", () => {
     const result = calculateSavings([offer("a", 39500)]);
     assert.equal(result.headline, null);
-    assert.match(result.reason, /Not enough comparable offers/);
+    assert.match(result.reason, /Not enough verified comparable offers/);
   });
 
   it("never compares refundable against non-refundable", () => {

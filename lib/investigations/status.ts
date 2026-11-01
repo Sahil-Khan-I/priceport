@@ -1,3 +1,5 @@
+export const JOB_TIMEOUT_MS = Number(process.env.TINYFISH_JOB_TIMEOUT_MS) || 8 * 60 * 1000;
+
 export const JOB_STATUS = {
   QUEUED: "queued",
   STARTING: "starting",

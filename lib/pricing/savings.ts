@@ -14,6 +14,8 @@ export type SavingsOffer = {
   mealPlanStatus?: string | null;
   cancellationStatus?: string | null;
   propertyMatch?: string | null;
+  comparisonClass?: string | null;
+  priceBasis?: string | null;
   comparable?: boolean;
   trueCost?: { fullyComparable?: boolean; confirmedTotal?: number | null } | null;
   conversion?: {
@@ -89,7 +91,13 @@ export function calculateSavings(
       offer.conversion?.available === true &&
       typeof offer.conversion.amount === "number" &&
       Number.isFinite(offer.conversion.amount) &&
-      ["exact", "probable"].includes(String(offer.propertyMatch || "")),
+      ["exact", "probable"].includes(String(offer.propertyMatch || "")) &&
+      ["exact_match", "comparable", undefined, null, ""].includes(
+        offer.comparisonClass as string | null | undefined,
+      ) &&
+      !["per_night", "per_room_per_night", "per_person"].includes(
+        String(offer.priceBasis || ""),
+      ),
   );
 
   const buckets = new Map<string, SavingsOffer[]>();
@@ -138,7 +146,7 @@ export function calculateSavings(
     groups,
     reason: headline
       ? null
-      : "Not enough comparable offers to calculate reliable savings.",
+      : "Not enough verified comparable offers to calculate savings.",
     basis,
     fxSource,
   };

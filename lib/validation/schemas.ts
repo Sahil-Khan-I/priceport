@@ -36,6 +36,8 @@ export function validateDiscoverRequest(body: any = {}) {
   };
 }
 
+import { normalizeRoomPreferences, validateGuestCounts } from "../search/room-preferences";
+
 export function validateInvestigationRequest(body: any = {}) {
   const errors: string[] = [];
   const hotel = body.hotel || {};
@@ -53,11 +55,10 @@ export function validateInvestigationRequest(body: any = {}) {
   const adults = Number(booking.adults);
   const children = Number(booking.children ?? 0);
   const rooms = Number(booking.rooms ?? 1);
-  if (!Number.isFinite(adults) || adults < 1) errors.push("adults must be >= 1");
-  if (!Number.isFinite(children) || children < 0) {
-    errors.push("children must be >= 0");
-  }
-  if (!Number.isFinite(rooms) || rooms < 1) errors.push("rooms must be >= 1");
+  const childrenAges = Array.isArray(booking.childrenAges)
+    ? booking.childrenAges.map(Number)
+    : [];
+  errors.push(...validateGuestCounts({ adults, children, childrenAges, rooms }));
 
   if (!Array.isArray(body.providers) || body.providers.length === 0) {
     errors.push("providers must be a non-empty array");
@@ -66,13 +67,10 @@ export function validateInvestigationRequest(body: any = {}) {
     errors.push("markets must be a non-empty array");
   }
 
-  const childrenAges = Array.isArray(booking.childrenAges)
-    ? booking.childrenAges.map(Number)
-    : [];
-
-  if (children > 0 && childrenAges.length !== children) {
-    errors.push("childrenAges must be provided for each child");
-  }
+  const roomPreferences = normalizeRoomPreferences(
+    body.roomPreferences || booking.roomPreferences,
+  );
+  errors.push(...roomPreferences.errors);
 
   return {
     ok: errors.length === 0,
@@ -93,7 +91,9 @@ export function validateInvestigationRequest(body: any = {}) {
         children,
         childrenAges,
         rooms,
+        roomPreferences: roomPreferences.value,
       },
+      roomPreferences: roomPreferences.value,
       homeCountry: body.homeCountry || null,
       preferredCurrency: body.preferredCurrency || "USD",
       providers: body.providers || [],
