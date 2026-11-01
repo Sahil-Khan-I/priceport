@@ -12,10 +12,26 @@ export function validateDiscoverRequest(body: any = {}) {
     value: {
       query,
       directUrl: directUrl || null,
-      location: body.location || "US",
+      // Optional override only — discovery prefers destinationCountryCode.
+      location:
+        typeof body.location === "string" && body.location.trim()
+          ? body.location.trim()
+          : undefined,
       destination:
         typeof body.destination === "string" ? body.destination.trim() : null,
-      limit: Number.isFinite(Number(body.limit)) ? Number(body.limit) : 8,
+      destinationCity:
+        typeof body.destinationCity === "string"
+          ? body.destinationCity.trim()
+          : null,
+      destinationCountry:
+        typeof body.destinationCountry === "string"
+          ? body.destinationCountry.trim()
+          : null,
+      destinationCountryCode:
+        typeof body.destinationCountryCode === "string"
+          ? body.destinationCountryCode.trim()
+          : null,
+      limit: Number.isFinite(Number(body.limit)) ? Number(body.limit) : 6,
     },
   };
 }

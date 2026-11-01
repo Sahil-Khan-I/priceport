@@ -1,25 +1,48 @@
 import { searchProviders } from "@/lib/tinyfish/search";
 import { assertSafeHttpUrl } from "@/lib/security/urls";
 import { isTinyFishConfigured } from "@/lib/tinyfish/config";
+import {
+  buildHotelSearchQuery,
+  classifyUrl,
+  extractSearchHits,
+  mapDestinationToSearchLocation,
+  rankAndFilterCandidates,
+  type DestinationContext,
+} from "@/lib/hotels/discovery-relevance";
 
 /**
- * Discover hotel candidates via TinyFish Search — no hardcoded listings.
+ * Discover hotel candidates via TinyFish Search + relevance filtering.
+ * No hardcoded listings. No fabricated candidates.
  */
 export async function discoverHotels({
   query,
-  location = "US",
+  location,
   directUrl = null,
   destination = null,
-  limit = 8,
+  destinationCity = null,
+  destinationCountry = null,
+  destinationCountryCode = null,
+  limit = 6,
 }: {
   query?: string;
   location?: string;
   directUrl?: string | null;
   destination?: string | null;
+  destinationCity?: string | null;
+  destinationCountry?: string | null;
+  destinationCountryCode?: string | null;
   limit?: number;
 }) {
+  const destCtx: DestinationContext = {
+    city: destinationCity || parseCity(destination),
+    country: destinationCountry || parseCountry(destination),
+    countryCode: destinationCountryCode || null,
+    label: destination || null,
+  };
+
   if (directUrl) {
     const safe = assertSafeHttpUrl(directUrl);
+    const sourceClass = classifyUrl(safe);
     return {
       configured: isTinyFishConfigured(),
       source: "direct_url",
@@ -27,17 +50,26 @@ export async function discoverHotels({
         {
           id: `url_${hash(safe)}`,
           name: inferNameFromUrl(safe) || "Property from URL",
-          location: destination || null,
+          city: destCtx.city,
+          country: destCtx.country,
+          location: destCtx.label || destCtx.city,
           address: null,
           providerUrl: safe,
-          officialWebsite: null,
+          officialWebsite:
+            sourceClass === "official_property" ? safe : null,
+          sourceDomain: safeHostname(safe),
+          sourceClass,
           evidence: [
             "User-supplied direct URL — discovery hint, not verified identity",
           ],
           snippet: null,
+          relevanceScore: 50,
+          discoveryStatus: "discovery_candidate",
           discoverySource: "direct_url",
         },
       ],
+      queryUsed: null,
+      searchLocation: null,
     };
   }
 
@@ -53,138 +85,80 @@ export async function discoverHotels({
       results: [],
       error:
         "TinyFish is not configured. Add your server-side API key to enable live hotel discovery.",
+      queryUsed: null,
+      searchLocation: null,
     };
   }
 
-  const dest = String(destination || "").trim();
-  const searchQuery = dest
-    ? `${q} hotel in ${dest} official site OR booking`
-    : `${q} hotel official site OR booking`;
+  const searchQuery = buildHotelSearchQuery(q, destCtx);
+  const searchLocation =
+    location || mapDestinationToSearchLocation(destCtx, "US");
 
   const response = await searchProviders({
     query: searchQuery,
-    location,
+    location: searchLocation,
     language: "en",
+    purpose: destCtx.city
+      ? `Find the specific hotel property matching "${q}" in ${destCtx.city}${destCtx.country ? `, ${destCtx.country}` : ""}`
+      : `Find hotel property pages matching "${q}"`,
   });
 
-  const results = mapSearchResults(response, q, dest).slice(
-    0,
-    Math.max(1, Math.min(Number(limit) || 8, 12)),
-  );
+  const hits = extractSearchHits(response);
+  const results = rankAndFilterCandidates(hits, {
+    query: q,
+    destination: destCtx,
+    limit: Math.max(1, Math.min(Number(limit) || 6, 8)),
+    minScore: destCtx.city ? 20 : 12,
+  });
 
   return {
     configured: true,
     source: "tinyfish_search",
     results,
+    queryUsed: searchQuery,
+    searchLocation,
     rawMeta: {
-      resultCount: results.length,
-      query: searchQuery,
+      rawHitCount: hits.length,
+      keptCount: results.length,
     },
   };
 }
 
-function mapSearchResults(response: any, query: string, destination?: string) {
-  const items =
-    response?.results ||
-    response?.organic ||
-    response?.items ||
-    response?.data ||
-    [];
-
-  if (!Array.isArray(items)) return [];
-
-  return items
-    .map((item: any, index: number) => {
-      const url =
-        item.url || item.link || item.href || item.source_url || item.sourceUrl || null;
-      let safeUrl = null;
-      if (url) {
-        try {
-          safeUrl = assertSafeHttpUrl(String(url));
-        } catch {
-          safeUrl = null;
-        }
-      }
-
-      const name =
-        item.title ||
-        item.name ||
-        item.hotel_name ||
-        item.headline ||
-        `Result ${index + 1}`;
-
-      return {
-        id: `search_${hash(`${name}|${safeUrl || index}`)}`,
-        name: String(name).replace(/\s+/g, " ").trim(),
-        location:
-          item.location ||
-          item.city ||
-          item.region ||
-          destination ||
-          extractLocationHint(item.snippet || item.description || "") ||
-          null,
-        address: item.address || null,
-        providerUrl: safeUrl,
-        officialWebsite: looksOfficial(safeUrl) ? safeUrl : null,
-        evidence: [
-          item.snippet || item.description || null,
-          safeUrl ? `Source: ${safeUrl}` : null,
-          `Matched query: ${query}`,
-          destination ? `Destination context: ${destination}` : null,
-          "Discovery candidate — not yet identity-verified",
-        ].filter(Boolean),
-        snippet: item.snippet || item.description || null,
-        discoverySource: "tinyfish_search",
-      };
-    })
-    .filter((row) => row.providerUrl || row.name);
+function parseCity(label: string | null | undefined) {
+  if (!label) return null;
+  const part = String(label).split(",")[0]?.trim();
+  return part || null;
 }
 
-const META_OR_OTA_HOST_PARTS = [
-  "booking.com",
-  "agoda.com",
-  "expedia.",
-  "hotels.com",
-  "tripadvisor.",
-  "skyscanner.",
-  "kayak.",
-  "trivago.",
-  "tripadvisor.",
-  "google.",
-  "bing.com",
-  "makemytrip.",
-  "tripadvisor",
-];
+function parseCountry(label: string | null | undefined) {
+  if (!label) return null;
+  const parts = String(label).split(",");
+  if (parts.length < 2) return null;
+  return parts.slice(1).join(",").trim() || null;
+}
 
-function looksOfficial(url) {
-  if (!url) return false;
+function safeHostname(url: string) {
   try {
-    const host = new URL(url).hostname.toLowerCase();
-    return !META_OR_OTA_HOST_PARTS.some((part) => host.includes(part));
-  } catch {
-    return false;
-  }
-}
-
-function extractLocationHint(text) {
-  if (!text) return null;
-  const match = String(text).match(/\b(?:in|at)\s+([A-Z][A-Za-z\s-]{2,40})/);
-  return match ? match[1].trim() : null;
-}
-
-function inferNameFromUrl(url) {
-  try {
-    const { hostname, pathname } = new URL(url);
-    const segment = pathname.split("/").filter(Boolean)[0] || hostname;
-    return decodeURIComponent(segment).replace(/[-_]+/g, " ");
+    return new URL(url).hostname;
   } catch {
     return null;
   }
 }
 
-function hash(value) {
+function inferNameFromUrl(url: string) {
+  try {
+    const { pathname, hostname } = new URL(url);
+    const segment = pathname.split("/").filter(Boolean).pop() || hostname;
+    return decodeURIComponent(segment)
+      .replace(/[-_]+/g, " ")
+      .replace(/\.html?$/i, "");
+  } catch {
+    return null;
+  }
+}
+
+function hash(value: string) {
   let h = 0;
-  const s = String(value);
-  for (let i = 0; i < s.length; i += 1) h = (h * 31 + s.charCodeAt(i)) >>> 0;
+  for (let i = 0; i < value.length; i += 1) h = (h * 31 + value.charCodeAt(i)) >>> 0;
   return h.toString(36);
 }

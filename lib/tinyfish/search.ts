@@ -10,11 +10,13 @@ export async function searchProviders({
   location = "US",
   language = "en",
   domainType = "web",
+  purpose,
 }: {
   query: string;
   location?: string;
   language?: string;
   domainType?: "web" | "news" | "research_paper";
+  purpose?: string;
 }) {
   try {
     const client = getTinyFishClient();
@@ -23,7 +25,8 @@ export async function searchProviders({
       location,
       language,
       domain_type: domainType,
-    });
+      ...(purpose ? { purpose: purpose.slice(0, 2000) } : {}),
+    } as any);
   } catch (error) {
     throw toTinyFishError(error);
   }

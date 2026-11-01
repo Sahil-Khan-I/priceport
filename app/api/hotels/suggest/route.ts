@@ -10,7 +10,11 @@ export async function GET(request: Request) {
   const { searchParams } = new URL(request.url);
   const query = String(searchParams.get("q") || "").trim();
   const destination = String(searchParams.get("destination") || "").trim();
-  const location = String(searchParams.get("location") || "US").trim();
+  const destinationCity = String(searchParams.get("city") || "").trim();
+  const destinationCountry = String(searchParams.get("country") || "").trim();
+  const destinationCountryCode = String(
+    searchParams.get("countryCode") || "",
+  ).trim();
   const limit = Number(searchParams.get("limit") || 6);
 
   if (query.length < 3) {
@@ -26,7 +30,10 @@ export async function GET(request: Request) {
     const result = await discoverHotels({
       query,
       destination: destination || null,
-      location,
+      destinationCity: destinationCity || null,
+      destinationCountry: destinationCountry || null,
+      destinationCountryCode: destinationCountryCode || null,
+      // Never use traveler home country here — destination drives location.
       limit: Math.min(Math.max(limit, 1), 8),
     });
     return NextResponse.json(result);

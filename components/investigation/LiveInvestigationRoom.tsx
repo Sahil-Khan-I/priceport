@@ -224,10 +224,16 @@ export default function LiveInvestigationRoom({
                       {job.providerName}
                     </p>
                     <p className="mt-1 text-xs text-white/50">
-                      × {job.market} · {job.accessMethod}
-                      {job.actualProxyCountry
-                        ? ` · proxy ${job.actualProxyCountry}`
-                        : " · proxy null"}
+                      × {job.market} ·{" "}
+                      {String(job.accessMethod || "")
+                        .toLowerCase()
+                        .includes("proxy") || job.actualProxyCountry
+                        ? `Proxy${job.actualProxyCountry ? ` · ${job.actualProxyCountry}` : ""}`
+                        : String(job.accessMethod || "")
+                              .toLowerCase()
+                              .includes("storefront")
+                          ? "Storefront"
+                          : job.accessMethod || "Access unknown"}
                     </p>
                   </div>
                   <InvestigationStatus status={job.status} />

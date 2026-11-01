@@ -219,11 +219,13 @@ export default function ResultsView({
         <Stat label="Unsupported" value={data.summary?.unsupported || 0} />
       </div>
 
-      {/* B. Global market comparison */}
+      {/* B. Market Lens comparison */}
       <section className="mt-10">
-        <h2 className="text-lg font-semibold text-pp-text">Global market comparison</h2>
+        <h2 className="text-lg font-semibold text-pp-text">Market Lens</h2>
         <p className="mt-1 text-sm text-pp-muted">
-          Only real TinyFish extractions appear. Missing fields stay unknown.
+          Provider × market offers from live TinyFish jobs. Access method is labeled
+          honestly: Proxy = documented local IP; Storefront = regional site only.
+          Missing fields stay unknown — never invented.
         </p>
         <div className="mt-4 overflow-x-auto rounded-[24px] border border-pp-border bg-pp-white">
           <table className="min-w-[1100px] w-full border-collapse text-left text-sm">
@@ -270,12 +272,7 @@ export default function ResultsView({
                     <td className="px-3 py-3 font-medium text-pp-text">
                       {offer.provider}
                       <div className="text-[11px] text-pp-muted">
-                        {offer.accessMethod}
-                        {offer.actualProxyCountry
-                          ? ` · proxy ${offer.actualProxyCountry}`
-                          : offer.storefrontRegion
-                            ? ` · storefront ${offer.storefrontRegion}`
-                            : ""}
+                        {formatAccessLabel(offer)}
                       </div>
                     </td>
                     <td className="px-3 py-3 text-pp-muted">{offer.market}</td>
@@ -575,6 +572,21 @@ export default function ResultsView({
       </p>
     </Container>
   );
+}
+
+function formatAccessLabel(offer: {
+  accessMethod?: string | null;
+  actualProxyCountry?: string | null;
+  storefrontRegion?: string | null;
+}) {
+  const method = String(offer.accessMethod || "").toLowerCase();
+  if (method.includes("proxy") || offer.actualProxyCountry) {
+    return `Proxy${offer.actualProxyCountry ? ` · ${offer.actualProxyCountry}` : ""}`;
+  }
+  if (method.includes("storefront") || offer.storefrontRegion) {
+    return `Storefront${offer.storefrontRegion ? ` · ${offer.storefrontRegion}` : ""}`;
+  }
+  return offer.accessMethod || "Access unknown";
 }
 
 function moneyOrUnknown(amount: number | null | undefined, currency: string) {

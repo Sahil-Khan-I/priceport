@@ -1,6 +1,12 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import {
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type KeyboardEvent as ReactKeyboardEvent,
+} from "react";
 import { useRouter } from "next/navigation";
 import Container from "@/components/ui/Container";
 import Button from "@/components/ui/Button";
@@ -28,33 +34,42 @@ import {
 } from "@/lib/search/defaults";
 
 const fieldClass =
-  "w-full rounded-xl border border-pp-border bg-pp-bg px-3 py-3 text-sm outline-none transition focus:border-pp-accent";
+  "w-full rounded-xl border border-pp-border bg-pp-white px-3.5 py-3 text-sm text-pp-text outline-none transition placeholder:text-pp-muted/70 focus:border-pp-accent focus:ring-2 focus:ring-pp-accent/15";
 
 type HotelCandidate = {
   id: string;
   name: string;
+  city?: string | null;
+  country?: string | null;
   location?: string | null;
   address?: string | null;
   providerUrl?: string | null;
   officialWebsite?: string | null;
+  sourceDomain?: string | null;
+  sourceClass?: string;
   evidence?: string[];
   snippet?: string | null;
+  relevanceScore?: number;
+  discoveryStatus?: string;
   discoverySource?: string;
 };
+
+type OpenMenu = "none" | "destination" | "hotel";
 
 export default function SearchWorkflow() {
   const router = useRouter();
   const [step, setStep] = useState(1);
+  const rootRef = useRef<HTMLDivElement>(null);
 
-  // Destination + hotel
   const [destinationQuery, setDestinationQuery] = useState("");
   const [destination, setDestination] = useState<Destination | null>(null);
-  const [showDestMenu, setShowDestMenu] = useState(false);
   const [hotelQuery, setHotelQuery] = useState("");
   const [hotelSuggestions, setHotelSuggestions] = useState<HotelCandidate[]>([]);
   const [suggestLoading, setSuggestLoading] = useState(false);
   const [suggestError, setSuggestError] = useState("");
-  const [showHotelMenu, setShowHotelMenu] = useState(false);
+  const [openMenu, setOpenMenu] = useState<OpenMenu>("none");
+  const [hotelHighlight, setHotelHighlight] = useState(0);
+  const [destHighlight, setDestHighlight] = useState(0);
   const [showUrlPanel, setShowUrlPanel] = useState(false);
   const [directUrl, setDirectUrl] = useState("");
   const [urlBusy, setUrlBusy] = useState(false);
@@ -62,7 +77,6 @@ export default function SearchWorkflow() {
   const suggestAbort = useRef<AbortController | null>(null);
   const suggestCache = useRef<Map<string, HotelCandidate[]>>(new Map());
 
-  // Stay — defaults applied after mount to avoid prerender Date() issues
   const [checkIn, setCheckIn] = useState("");
   const [checkOut, setCheckOut] = useState("");
   const [adults, setAdults] = useState(2);
@@ -70,7 +84,6 @@ export default function SearchWorkflow() {
   const [childrenAges, setChildrenAges] = useState<number[]>([]);
   const [rooms, setRooms] = useState(1);
 
-  // Traveler + markets
   const [homeCountry, setHomeCountry] = useState("IN");
   const [preferredCurrency, setPreferredCurrency] = useState("INR");
   const [currencyTouched, setCurrencyTouched] = useState(false);
@@ -82,12 +95,17 @@ export default function SearchWorkflow() {
   });
   const [marketReason, setMarketReason] = useState<string[]>([]);
   const [marketsTouched, setMarketsTouched] = useState(false);
-  const [providers, setProviders] = useState<
-    Array<{ id: string; name: string }>
-  >([]);
+  const [providers, setProviders] = useState<Array<{ id: string; name: string }>>(
+    [],
+  );
   const [selectedProviders, setSelectedProviders] = useState<string[]>([]);
   const [submitting, setSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState("");
+
+  const destinationOptions = useMemo(
+    () => searchDestinations(destinationQuery, 8),
+    [destinationQuery],
+  );
 
   function applyMarketDefaults(
     nextHome: string,
@@ -115,15 +133,12 @@ export default function SearchWorkflow() {
 
   function updateHomeCountry(code: string) {
     setHomeCountry(code);
-    if (!currencyTouched) {
-      setPreferredCurrency(currencyForHomeCountry(code));
-    }
+    if (!currencyTouched) setPreferredCurrency(currencyForHomeCountry(code));
     applyMarketDefaults(code, destination);
   }
 
   useEffect(() => {
     let cancelled = false;
-    // Defer locale + date defaults so they stay client-only.
     const timer = setTimeout(() => {
       if (cancelled) return;
       const inferred = inferLocaleHomeCountry();
@@ -164,22 +179,37 @@ export default function SearchWorkflow() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // Debounced hotel autocomplete via TinyFish Search API.
+  // Outside click closes menus
   useEffect(() => {
-    if (hotel || hotelQuery.trim().length < 3) {
-      return;
+    function onDoc(e: MouseEvent) {
+      if (!rootRef.current?.contains(e.target as Node)) setOpenMenu("none");
     }
+    function onKey(e: globalThis.KeyboardEvent) {
+      if (e.key === "Escape") setOpenMenu("none");
+    }
+    document.addEventListener("mousedown", onDoc);
+    document.addEventListener("keydown", onKey);
+    return () => {
+      document.removeEventListener("mousedown", onDoc);
+      document.removeEventListener("keydown", onKey);
+    };
+  }, []);
 
-    const key = `${destination?.id || ""}|${hotelQuery.trim().toLowerCase()}`;
+  // Debounced hotel suggest
+  useEffect(() => {
+    if (hotel || hotelQuery.trim().length < 3 || !destination) return;
+
+    const key = `${destination.countryCode}|${destination.city}|${hotelQuery.trim().toLowerCase()}`;
     const cached = suggestCache.current.get(key);
     if (cached) {
-      const timer = setTimeout(() => {
+      const t = setTimeout(() => {
         setHotelSuggestions(cached);
-        setSuggestError("");
-        setShowHotelMenu(true);
+        setSuggestError(cached.length ? "" : "No reliable matches found.");
+        setOpenMenu("hotel");
+        setHotelHighlight(0);
         setSuggestLoading(false);
       }, 0);
-      return () => clearTimeout(timer);
+      return () => clearTimeout(t);
     }
 
     const timer = setTimeout(async () => {
@@ -192,11 +222,11 @@ export default function SearchWorkflow() {
         const params = new URLSearchParams({
           q: hotelQuery.trim(),
           limit: "6",
+          destination: destination.label,
+          city: destination.city,
+          country: destination.country,
+          countryCode: destination.countryCode,
         });
-        if (destination?.searchHint) {
-          params.set("destination", destination.searchHint);
-          params.set("location", destination.countryCode === "GB" ? "GB" : "US");
-        }
         const response = await fetch(`/api/hotels/suggest?${params}`, {
           signal: controller.signal,
         });
@@ -210,10 +240,11 @@ export default function SearchWorkflow() {
         const results = data.results || [];
         suggestCache.current.set(key, results);
         setHotelSuggestions(results);
-        setShowHotelMenu(true);
+        setOpenMenu("hotel");
+        setHotelHighlight(0);
         if (!results.length) {
           setSuggestError(
-            "No hotels found. Try another name or paste a booking link.",
+            "No reliable matches found. Try another hotel name or change your destination.",
           );
         }
       } catch (error: any) {
@@ -224,17 +255,10 @@ export default function SearchWorkflow() {
       } finally {
         setSuggestLoading(false);
       }
-    }, 500);
+    }, 450);
 
-    return () => {
-      clearTimeout(timer);
-    };
+    return () => clearTimeout(timer);
   }, [hotelQuery, destination, hotel]);
-
-  const destinationOptions = useMemo(
-    () => searchDestinations(destinationQuery, 8),
-    [destinationQuery],
-  );
 
   const formError = useMemo(() => {
     if (!checkIn || !checkOut) return "Select check-in and check-out dates.";
@@ -268,19 +292,26 @@ export default function SearchWorkflow() {
   function selectDestination(next: Destination) {
     setDestination(next);
     setDestinationQuery(next.label);
-    setShowDestMenu(false);
+    setOpenMenu("none");
     applyMarketDefaults(homeCountry, next);
+    if (hotel && hotelQuery) {
+      // Force re-suggest under new destination context
+      suggestCache.current.clear();
+    }
   }
 
   function selectHotel(candidate: HotelCandidate) {
     setHotel({
       ...candidate,
-      location: candidate.location || destination?.label || null,
+      location:
+        candidate.location ||
+        [candidate.city, candidate.country].filter(Boolean).join(", ") ||
+        destination?.label ||
+        null,
     });
     setHotelQuery(candidate.name);
-    setShowHotelMenu(false);
+    setOpenMenu("none");
     setSuggestError("");
-    setStep(2);
   }
 
   async function resolveDirectUrl() {
@@ -293,7 +324,10 @@ export default function SearchWorkflow() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           directUrl: directUrl.trim(),
-          destination: destination?.label || undefined,
+          destination: destination?.label,
+          destinationCity: destination?.city,
+          destinationCountry: destination?.country,
+          destinationCountryCode: destination?.countryCode,
         }),
       });
       const data = await response.json();
@@ -315,19 +349,6 @@ export default function SearchWorkflow() {
     );
   }
 
-  function applyRecommendedMarkets() {
-    setMarketsTouched(false);
-    applyMarketDefaults(homeCountry, destination, true);
-  }
-
-  function selectAllProxyMarkets() {
-    setMarketsTouched(true);
-    const codes = INVESTIGATION_MARKETS.filter((m) => m.proxySupported).map(
-      (m) => m.code,
-    );
-    setMarkets(codes);
-  }
-
   async function startInvestigation() {
     setSubmitError("");
     if (!hotel) {
@@ -340,18 +361,12 @@ export default function SearchWorkflow() {
       setStep(2);
       return;
     }
-    if (!markets.length) {
-      setSubmitError("Select at least one comparison market.");
-      return;
-    }
-    if (!selectedProviders.length) {
-      setSubmitError("Select at least one booking provider.");
+    if (!markets.length || !selectedProviders.length) {
+      setSubmitError("Select at least one market and provider.");
       return;
     }
     if (jobPreview.executable < 1) {
-      setSubmitError(
-        "No executable investigation jobs with the current selection.",
-      );
+      setSubmitError("No executable investigation jobs with this selection.");
       return;
     }
 
@@ -385,9 +400,7 @@ export default function SearchWorkflow() {
         }),
       });
       const data = await response.json();
-      if (!response.ok) {
-        throw new Error(data.error || "Could not start investigation");
-      }
+      if (!response.ok) throw new Error(data.error || "Could not start investigation");
       router.push(`/investigate/${data.id}`);
     } catch (error) {
       setSubmitError(
@@ -398,35 +411,59 @@ export default function SearchWorkflow() {
     }
   }
 
+  function onHotelKeyDown(e: ReactKeyboardEvent<HTMLInputElement>) {
+    if (openMenu !== "hotel" || !hotelSuggestions.length) return;
+    if (e.key === "ArrowDown") {
+      e.preventDefault();
+      setHotelHighlight((i) => (i + 1) % hotelSuggestions.length);
+    } else if (e.key === "ArrowUp") {
+      e.preventDefault();
+      setHotelHighlight((i) => (i - 1 + hotelSuggestions.length) % hotelSuggestions.length);
+    } else if (e.key === "Enter") {
+      e.preventDefault();
+      const pick = hotelSuggestions[hotelHighlight];
+      if (pick) selectHotel(pick);
+    }
+  }
+
+  function onDestKeyDown(e: ReactKeyboardEvent<HTMLInputElement>) {
+    if (openMenu !== "destination" || !destinationOptions.length) return;
+    if (e.key === "ArrowDown") {
+      e.preventDefault();
+      setDestHighlight((i) => (i + 1) % destinationOptions.length);
+    } else if (e.key === "ArrowUp") {
+      e.preventDefault();
+      setDestHighlight((i) => (i - 1 + destinationOptions.length) % destinationOptions.length);
+    } else if (e.key === "Enter") {
+      e.preventDefault();
+      const pick = destinationOptions[destHighlight];
+      if (pick) selectDestination(pick);
+    }
+  }
+
   return (
-    <div className="relative overflow-hidden">
-      <div className="pointer-events-none absolute inset-0 pp-grid-wash opacity-70" />
+    <div ref={rootRef} className="relative min-h-[70vh] bg-pp-bg">
+      <div className="pointer-events-none absolute inset-x-0 top-0 h-72 bg-[radial-gradient(ellipse_at_top,_rgba(70,137,255,0.10),_transparent_60%)]" />
       <Container className="relative py-10 sm:py-14">
-        <div className="mx-auto max-w-3xl text-center">
-          <Badge tone="accent">Priceport search</Badge>
-          <h1 className="mt-4 text-3xl font-semibold tracking-tight text-pp-text sm:text-5xl">
-            Where are you planning to stay?
+        <div className="mx-auto max-w-3xl">
+          <Badge tone="accent">Hotel Market Lens</Badge>
+          <h1 className="mt-4 text-3xl font-semibold tracking-tight text-pp-text sm:text-[2.5rem] sm:leading-tight">
+            Find the real price of your next stay.
           </h1>
-          <p className="mx-auto mt-4 max-w-2xl text-base text-pp-muted sm:text-lg">
-            Find your hotel. We&apos;ll investigate global prices and help you
-            discover the best real deal.
+          <p className="mt-3 max-w-2xl text-base text-pp-muted sm:text-lg">
+            Compare hotels across markets, uncover regional price differences,
+            and understand what you&apos;ll actually pay.
           </p>
         </div>
 
-        <ol className="mx-auto mt-8 flex max-w-3xl flex-wrap justify-center gap-2 text-sm">
-          {[
-            "Destination & hotel",
-            "Stay & traveler",
-            "Compare globally",
-          ].map((label, i) => (
+        <ol className="mx-auto mt-8 flex max-w-3xl gap-2 text-xs sm:text-sm">
+          {["Find stay", "Your details", "Compare markets"].map((label, i) => (
             <li
               key={label}
-              className={`rounded-full px-3.5 py-1.5 ${
+              className={`rounded-full px-3 py-1.5 ${
                 step === i + 1
                   ? "bg-pp-accent text-white"
-                  : step > i + 1
-                    ? "bg-pp-bg-secondary text-pp-text"
-                    : "bg-pp-bg-secondary text-pp-muted"
+                  : "bg-pp-bg-secondary text-pp-muted"
               }`}
             >
               {i + 1}. {label}
@@ -434,11 +471,11 @@ export default function SearchWorkflow() {
           ))}
         </ol>
 
-        {/* STEP 1 */}
         {step === 1 ? (
-          <section className="mx-auto mt-8 max-w-3xl space-y-5">
-            <div className="rounded-[28px] border border-pp-border bg-pp-white p-5 shadow-pp-soft sm:p-7">
-              <label className="block text-left text-sm font-medium text-pp-text">
+          <section className="mx-auto mt-8 max-w-3xl">
+            <div className="overflow-visible rounded-[28px] border border-pp-border bg-pp-white p-5 shadow-pp-soft sm:p-7">
+              {/* Destination */}
+              <label className="block text-sm font-medium text-pp-text">
                 Destination
                 <div className="relative mt-2">
                   <input
@@ -446,51 +483,64 @@ export default function SearchWorkflow() {
                     onChange={(e) => {
                       setDestinationQuery(e.target.value);
                       setDestination(null);
-                      setShowDestMenu(true);
+                      setOpenMenu("destination");
+                      setDestHighlight(0);
                     }}
-                    onFocus={() => setShowDestMenu(true)}
-                    placeholder="Dubai, Singapore, London…"
+                    onFocus={() => setOpenMenu("destination")}
+                    onKeyDown={onDestKeyDown}
+                    placeholder="Where are you going?"
                     className={fieldClass}
                     autoComplete="off"
+                    aria-controls="destination-listbox"
                   />
-                  {showDestMenu ? (
-                    <div className="absolute z-20 mt-2 max-h-64 w-full overflow-auto rounded-2xl border border-pp-border bg-pp-white shadow-pp-soft">
+                  {openMenu === "destination" ? (
+                    <ul
+                      id="destination-listbox"
+                      role="listbox"
+                      className="absolute left-0 right-0 z-30 mt-2 max-h-64 overflow-auto rounded-2xl border border-pp-border bg-pp-white py-1 shadow-pp-soft"
+                    >
                       {destinationOptions.length === 0 ? (
-                        <p className="px-4 py-3 text-sm text-pp-muted">
+                        <li className="px-4 py-3 text-sm text-pp-muted">
                           No destinations match. Try another city.
-                        </p>
+                        </li>
                       ) : (
-                        destinationOptions.map((option) => (
-                          <button
-                            key={option.id}
-                            type="button"
-                            className="flex w-full items-center gap-3 px-4 py-3 text-left hover:bg-pp-bg-secondary"
-                            onClick={() => selectDestination(option)}
-                          >
-                            <span className="text-xl">{option.flag}</span>
-                            <span>
-                              <span className="block text-sm font-medium text-pp-text">
-                                {option.city}
+                        destinationOptions.map((option, index) => (
+                          <li key={option.id} role="option" aria-selected={index === destHighlight}>
+                            <button
+                              type="button"
+                              className={`flex w-full items-center gap-3 px-4 py-2.5 text-left ${
+                                index === destHighlight
+                                  ? "bg-pp-bg-secondary"
+                                  : "hover:bg-pp-bg-secondary"
+                              }`}
+                              onMouseEnter={() => setDestHighlight(index)}
+                              onClick={() => selectDestination(option)}
+                            >
+                              <span className="text-lg">{option.flag}</span>
+                              <span>
+                                <span className="block text-sm font-medium text-pp-text">
+                                  {option.city}
+                                </span>
+                                <span className="block text-xs text-pp-muted">
+                                  {option.country}
+                                </span>
                               </span>
-                              <span className="block text-xs text-pp-muted">
-                                {option.country}
-                              </span>
-                            </span>
-                          </button>
+                            </button>
+                          </li>
                         ))
                       )}
-                    </div>
+                    </ul>
                   ) : null}
                 </div>
               </label>
 
               {!destination ? (
                 <div className="mt-4">
-                  <p className="text-xs uppercase tracking-[0.14em] text-pp-muted">
+                  <p className="text-[11px] uppercase tracking-[0.14em] text-pp-muted">
                     Popular destinations
                   </p>
                   <div className="mt-2 flex flex-wrap gap-2">
-                    {POPULAR_DESTINATIONS.slice(0, 8).map((d) => (
+                    {POPULAR_DESTINATIONS.map((d) => (
                       <button
                         key={d.id}
                         type="button"
@@ -501,18 +551,24 @@ export default function SearchWorkflow() {
                       </button>
                     ))}
                   </div>
+                  <p className="mt-2 text-xs text-pp-muted">
+                    Shortcuts for common trips — not a complete world city list.
+                  </p>
                 </div>
               ) : (
                 <p className="mt-3 text-sm text-pp-muted">
-                  Selected {destination.flag} {destination.label}
+                  Searching in {destination.flag}{" "}
+                  <span className="font-medium text-pp-text">{destination.label}</span>
                 </p>
               )}
 
-              <label className="mt-6 block text-left text-sm font-medium text-pp-text">
+              {/* Hotel */}
+              <label className="mt-6 block text-sm font-medium text-pp-text">
                 Hotel
                 <div className="relative mt-2">
                   <input
                     value={hotelQuery}
+                    disabled={!destination}
                     onChange={(e) => {
                       const value = e.target.value;
                       setHotel(null);
@@ -520,67 +576,88 @@ export default function SearchWorkflow() {
                       if (value.trim().length < 3) {
                         setHotelSuggestions([]);
                         setSuggestError("");
-                        setShowHotelMenu(false);
                         setSuggestLoading(false);
+                        setOpenMenu(destination ? "none" : openMenu);
                       } else {
-                        setShowHotelMenu(true);
+                        setOpenMenu("hotel");
                       }
                     }}
-                    onFocus={() => hotelSuggestions.length && setShowHotelMenu(true)}
+                    onFocus={() => {
+                      if (hotelSuggestions.length) setOpenMenu("hotel");
+                    }}
+                    onKeyDown={onHotelKeyDown}
                     placeholder={
                       destination
-                        ? `Search hotels in ${destination.city}`
-                        : "Atlantis The Palm, Marina Bay Sands…"
+                        ? `Search hotels in ${destination.city}…`
+                        : "Select a destination first"
                     }
-                    className={fieldClass}
+                    className={`${fieldClass} disabled:cursor-not-allowed disabled:opacity-60`}
                     autoComplete="off"
+                    aria-controls="hotel-listbox"
                   />
                   {suggestLoading ? (
-                    <p className="mt-2 text-xs text-pp-muted">Searching with TinyFish…</p>
+                    <p className="mt-2 text-xs text-pp-muted">
+                      Finding properties in {destination?.city}…
+                    </p>
                   ) : null}
-                  {showHotelMenu && (hotelSuggestions.length > 0 || suggestError) ? (
-                    <div className="absolute z-20 mt-2 max-h-80 w-full overflow-auto rounded-2xl border border-pp-border bg-pp-white shadow-pp-soft">
+                  {openMenu === "hotel" &&
+                  (hotelSuggestions.length > 0 || suggestError) ? (
+                    <ul
+                      id="hotel-listbox"
+                      role="listbox"
+                      className="absolute left-0 right-0 z-30 mt-2 max-h-72 overflow-auto rounded-2xl border border-pp-border bg-pp-white py-1 shadow-pp-soft"
+                    >
                       {suggestError && hotelSuggestions.length === 0 ? (
-                        <p className="px-4 py-3 text-sm text-pp-muted">{suggestError}</p>
+                        <li className="px-4 py-3 text-sm text-pp-muted">
+                          {suggestError}
+                        </li>
                       ) : (
-                        hotelSuggestions.map((candidate) => (
-                          <button
+                        hotelSuggestions.map((candidate, index) => (
+                          <li
                             key={candidate.id}
-                            type="button"
-                            className="w-full border-b border-pp-border px-4 py-3 text-left last:border-0 hover:bg-pp-bg-secondary"
-                            onClick={() => selectHotel(candidate)}
+                            role="option"
+                            aria-selected={index === hotelHighlight}
                           >
-                            <span className="block text-sm font-medium text-pp-text">
-                              {candidate.name}
-                            </span>
-                            <span className="mt-1 block text-xs text-pp-muted">
-                              {[candidate.location, candidate.address]
-                                .filter(Boolean)
-                                .join(" · ") || "Location from search result"}
-                            </span>
-                            <span className="mt-1 block truncate text-[11px] text-pp-accent">
-                              {candidate.discoverySource || "tinyfish_search"}
-                              {candidate.providerUrl
-                                ? ` · ${candidate.providerUrl}`
-                                : ""}
-                            </span>
-                          </button>
+                            <button
+                              type="button"
+                              className={`w-full px-4 py-3 text-left ${
+                                index === hotelHighlight
+                                  ? "bg-pp-bg-secondary"
+                                  : "hover:bg-pp-bg-secondary"
+                              }`}
+                              onMouseEnter={() => setHotelHighlight(index)}
+                              onClick={() => selectHotel(candidate)}
+                            >
+                              <span className="block text-sm font-medium text-pp-text">
+                                {candidate.name}
+                              </span>
+                              <span className="mt-1 block text-xs text-pp-muted">
+                                {[candidate.city || candidate.location, candidate.country]
+                                  .filter(Boolean)
+                                  .join(" · ") || destination?.label}
+                              </span>
+                              <span className="mt-1 block text-[11px] text-pp-muted">
+                                {sourceLabel(candidate)}
+                                {candidate.address ? ` · ${candidate.address}` : ""}
+                              </span>
+                            </button>
+                          </li>
                         ))
                       )}
-                    </div>
+                    </ul>
                   ) : null}
                 </div>
               </label>
 
-              <div className="mt-5">
+              <div className="mt-4">
                 <button
                   type="button"
                   className="text-sm text-pp-accent hover:underline"
                   onClick={() => setShowUrlPanel((v) => !v)}
                 >
                   {showUrlPanel
-                    ? "Hide booking link option"
-                    : "Already found a hotel? Paste its booking link."}
+                    ? "Hide booking link"
+                    : "Already found a hotel? Use its booking link."}
                 </button>
                 {showUrlPanel ? (
                   <div className="mt-3 flex flex-col gap-3 sm:flex-row">
@@ -602,17 +679,35 @@ export default function SearchWorkflow() {
               </div>
 
               {hotel ? (
-                <div className="mt-6 rounded-2xl border border-pp-border bg-pp-bg-secondary p-4 text-left">
-                  <p className="text-xs uppercase tracking-[0.14em] text-pp-muted">
-                    Selected property
-                  </p>
-                  <p className="mt-1 font-semibold text-pp-text">{hotel.name}</p>
-                  <p className="mt-1 text-sm text-pp-muted">
-                    Discovery candidate — identity will be verified during investigation
-                  </p>
+                <div className="mt-6 rounded-2xl border border-pp-border bg-pp-bg px-4 py-4">
+                  <div className="flex flex-wrap items-start justify-between gap-3">
+                    <div>
+                      <p className="text-[11px] uppercase tracking-[0.14em] text-pp-muted">
+                        Selected property
+                      </p>
+                      <p className="mt-1 font-semibold text-pp-text">{hotel.name}</p>
+                      <p className="mt-1 text-sm text-pp-muted">
+                        {hotel.location || destination?.label}
+                      </p>
+                      <p className="mt-2 text-xs text-pp-muted">
+                        Discovery candidate — identity verified during investigation
+                      </p>
+                    </div>
+                    <button
+                      type="button"
+                      className="text-sm text-pp-accent hover:underline"
+                      onClick={() => {
+                        setHotel(null);
+                        setHotelQuery("");
+                        setHotelSuggestions([]);
+                      }}
+                    >
+                      Change
+                    </button>
+                  </div>
                   <div className="mt-4">
                     <Button type="button" onClick={() => setStep(2)}>
-                      Continue with this hotel
+                      Continue
                     </Button>
                   </div>
                 </div>
@@ -621,20 +716,17 @@ export default function SearchWorkflow() {
           </section>
         ) : null}
 
-        {/* STEP 2 */}
         {step === 2 ? (
-          <section className="mx-auto mt-8 max-w-3xl space-y-5">
+          <section className="mx-auto mt-8 max-w-3xl">
             <div className="rounded-[28px] border border-pp-border bg-pp-white p-5 shadow-pp-soft sm:p-7">
               <div className="flex flex-wrap items-start justify-between gap-3">
                 <div>
-                  <p className="text-xs uppercase tracking-[0.14em] text-pp-muted">
-                    Selected hotel
+                  <p className="text-[11px] uppercase tracking-[0.14em] text-pp-muted">
+                    Stay
                   </p>
-                  <p className="mt-1 text-lg font-semibold text-pp-text">
-                    {hotel?.name}
-                  </p>
-                  <p className="mt-1 text-sm text-pp-muted">
-                    {hotel?.location || destination?.label || "Location pending"}
+                  <p className="mt-1 text-lg font-semibold text-pp-text">{hotel?.name}</p>
+                  <p className="text-sm text-pp-muted">
+                    {hotel?.location || destination?.label}
                   </p>
                 </div>
                 <button
@@ -646,11 +738,11 @@ export default function SearchWorkflow() {
                 </button>
               </div>
 
-              <p className="mt-5 rounded-2xl bg-pp-bg-secondary px-4 py-3 text-sm text-pp-text">
+              <p className="mt-5 rounded-2xl bg-pp-bg px-4 py-3 text-sm text-pp-text">
                 {staySummary}
               </p>
 
-              <div className="mt-6 grid gap-4 sm:grid-cols-2">
+              <div className="mt-5 grid gap-4 sm:grid-cols-2">
                 <label className="text-sm font-medium text-pp-text">
                   Check-in
                   <input
@@ -671,13 +763,8 @@ export default function SearchWorkflow() {
                 </label>
               </div>
 
-              <div className="mt-5 grid gap-4 sm:grid-cols-3">
-                <Stepper
-                  label="Adults"
-                  value={adults}
-                  min={1}
-                  onChange={setAdults}
-                />
+              <div className="mt-5 grid gap-3 sm:grid-cols-3">
+                <Stepper label="Adults" value={adults} min={1} onChange={setAdults} />
                 <Stepper
                   label="Children"
                   value={children}
@@ -736,7 +823,7 @@ export default function SearchWorkflow() {
                     ))}
                   </select>
                   <span className="mt-1 block text-xs text-pp-muted">
-                    Suggested from browser locale — editable. Not proof of residence.
+                    Suggested from browser locale — not proof of residence.
                   </span>
                 </label>
                 <label className="text-sm font-medium text-pp-text">
@@ -768,53 +855,54 @@ export default function SearchWorkflow() {
                 </Button>
                 <Button
                   type="button"
-                  onClick={() => !formError && setStep(3)}
                   disabled={Boolean(formError)}
+                  onClick={() => !formError && setStep(3)}
                 >
-                  Continue to markets
+                  Continue to Market Lens
                 </Button>
               </div>
             </div>
           </section>
         ) : null}
 
-        {/* STEP 3 */}
         {step === 3 ? (
           <section className="mx-auto mt-8 max-w-3xl space-y-5">
             <div className="rounded-[28px] border border-pp-border bg-pp-white p-5 shadow-pp-soft sm:p-7">
-              <h2 className="text-lg font-semibold text-pp-text">
-                Compare globally
-              </h2>
+              <h2 className="text-lg font-semibold text-pp-text">Market Lens</h2>
               <p className="mt-1 text-sm text-pp-muted">
-                Recommended markets use the live Priceport configuration. Proxy
-                means documented TinyFish proxy; storefront is regional only.
+                Recommended markets from your live configuration. Proxy = documented
+                TinyFish country. Storefront = regional site only — not a local IP.
               </p>
 
               <div className="mt-4 flex flex-wrap gap-2">
-                <button
-                  type="button"
-                  onClick={applyRecommendedMarkets}
-                  className="rounded-full border border-pp-border px-3 py-1.5 text-xs text-pp-text hover:border-pp-accent/40"
+                <ChipButton
+                  onClick={() => {
+                    setMarketsTouched(false);
+                    applyMarketDefaults(homeCountry, destination, true);
+                  }}
                 >
                   Recommended
-                </button>
-                <button
-                  type="button"
-                  onClick={selectAllProxyMarkets}
-                  className="rounded-full border border-pp-border px-3 py-1.5 text-xs text-pp-text hover:border-pp-accent/40"
+                </ChipButton>
+                <ChipButton
+                  onClick={() => {
+                    setMarketsTouched(true);
+                    setMarkets(
+                      INVESTIGATION_MARKETS.filter((m) => m.proxySupported).map(
+                        (m) => m.code,
+                      ),
+                    );
+                  }}
                 >
                   All proxy markets
-                </button>
-                <button
-                  type="button"
+                </ChipButton>
+                <ChipButton
                   onClick={() => {
                     setMarketsTouched(true);
                     setMarkets([]);
                   }}
-                  className="rounded-full border border-pp-border px-3 py-1.5 text-xs text-pp-text hover:border-pp-accent/40"
                 >
                   Clear
-                </button>
+                </ChipButton>
               </div>
 
               {markets.length ? (
@@ -839,30 +927,30 @@ export default function SearchWorkflow() {
                 {INVESTIGATION_MARKETS.map((market) => {
                   const selected = markets.includes(market.code);
                   const accessLabel = market.proxySupported
-                    ? "Proxy available"
+                    ? "Proxy"
                     : market.storefrontAvailable
-                      ? "Storefront only"
+                      ? "Storefront"
                       : "Unsupported";
                   return (
                     <label
                       key={market.code}
                       className={`flex cursor-pointer items-start gap-3 rounded-2xl border px-4 py-3 ${
                         selected
-                          ? "border-pp-accent/40 bg-pp-bg-secondary"
-                          : "border-pp-border bg-pp-white"
+                          ? "border-pp-accent/35 bg-pp-bg"
+                          : "border-pp-border"
                       }`}
                     >
                       <input
                         type="checkbox"
+                        className="mt-1"
                         checked={selected}
                         onChange={() => toggleMarket(market.code)}
-                        className="mt-1"
                       />
                       <span className="flex-1">
                         <span className="flex flex-wrap items-center gap-2 text-sm font-medium text-pp-text">
                           <span>{countryFlag(market.code)}</span>
                           <span>{market.name}</span>
-                          <span className="rounded-full bg-pp-bg px-2 py-0.5 text-[11px] text-pp-muted">
+                          <span className="rounded-full bg-pp-bg-secondary px-2 py-0.5 text-[11px] text-pp-muted">
                             {accessLabel}
                           </span>
                         </span>
@@ -873,18 +961,16 @@ export default function SearchWorkflow() {
                           <select
                             className={`mt-2 max-w-xs ${fieldClass}`}
                             value={marketAccess[market.code] || "proxy"}
+                            onClick={(e) => e.stopPropagation()}
                             onChange={(e) =>
                               setMarketAccess((prev) => ({
                                 ...prev,
                                 [market.code]: e.target.value,
                               }))
                             }
-                            onClick={(e) => e.stopPropagation()}
                           >
                             <option value="proxy">Use TinyFish proxy</option>
-                            <option value="storefront">
-                              Regional storefront only
-                            </option>
+                            <option value="storefront">Regional storefront only</option>
                           </select>
                         ) : null}
                       </span>
@@ -895,8 +981,8 @@ export default function SearchWorkflow() {
 
               {marketReason.length ? (
                 <ul className="mt-4 space-y-1 text-xs text-pp-muted">
-                  {marketReason.map((reason) => (
-                    <li key={reason}>• {reason}</li>
+                  {marketReason.map((r) => (
+                    <li key={r}>• {r}</li>
                   ))}
                 </ul>
               ) : null}
@@ -904,17 +990,13 @@ export default function SearchWorkflow() {
 
             <div className="rounded-[28px] border border-pp-border bg-pp-white p-5 shadow-pp-soft sm:p-7">
               <h2 className="text-lg font-semibold text-pp-text">Providers</h2>
-              <p className="mt-1 text-sm text-pp-muted">
-                From the live provider registry. Default excludes official site
-                unless a property URL was discovered.
-              </p>
               <div className="mt-4 grid gap-3 sm:grid-cols-2">
                 {providers.map((provider) => (
                   <label
                     key={provider.id}
                     className={`flex items-center gap-3 rounded-2xl border px-4 py-3 ${
                       selectedProviders.includes(provider.id)
-                        ? "border-pp-accent/40 bg-pp-bg-secondary"
+                        ? "border-pp-accent/35 bg-pp-bg"
                         : "border-pp-border"
                     }`}
                   >
@@ -937,26 +1019,23 @@ export default function SearchWorkflow() {
               </div>
             </div>
 
-            <div className="rounded-[28px] border border-pp-border bg-pp-bg-secondary p-5 sm:p-6">
-              <p className="text-xs uppercase tracking-[0.14em] text-pp-muted">
+            <div className="rounded-[28px] border border-pp-border bg-pp-bg p-5 sm:p-6">
+              <p className="text-[11px] uppercase tracking-[0.14em] text-pp-muted">
                 Investigation preview
               </p>
               <p className="mt-2 text-base font-medium text-pp-text">
-                Compare {hotel?.name || "this hotel"} across {markets.length}{" "}
-                market{markets.length === 1 ? "" : "s"} and{" "}
-                {selectedProviders.length} provider
-                {selectedProviders.length === 1 ? "" : "s"}.
+                Compare {hotel?.name} across {markets.length} markets and{" "}
+                {selectedProviders.length} providers.
               </p>
               <p className="mt-2 text-sm text-pp-muted">
                 {jobPreview.executable} executable TinyFish job
-                {jobPreview.executable === 1 ? "" : "s"} will be launched
+                {jobPreview.executable === 1 ? "" : "s"}
                 {jobPreview.unsupported
-                  ? ` · ${jobPreview.unsupported} combination${jobPreview.unsupported === 1 ? "" : "s"} unsupported`
+                  ? ` · ${jobPreview.unsupported} unsupported`
                   : ""}
-                .
               </p>
-              <p className="mt-2 text-sm text-pp-muted">
-                {staySummary} · home {countryFlag(homeCountry)} {homeCountry} ·{" "}
+              <p className="mt-1 text-sm text-pp-muted">
+                {staySummary} · {countryFlag(homeCountry)} {homeCountry} ·{" "}
                 {preferredCurrency}
               </p>
               {jobPreview.notes.map((note) => (
@@ -980,7 +1059,7 @@ export default function SearchWorkflow() {
                 disabled={submitting || jobPreview.executable < 1}
               >
                 {submitting
-                  ? "Starting investigation…"
+                  ? "Starting…"
                   : `Start ${jobPreview.executable} investigation${jobPreview.executable === 1 ? "" : "s"}`}
               </Button>
             </div>
@@ -988,6 +1067,34 @@ export default function SearchWorkflow() {
         ) : null}
       </Container>
     </div>
+  );
+}
+
+function sourceLabel(candidate: HotelCandidate) {
+  if (candidate.sourceClass === "ota_property") {
+    return candidate.sourceDomain || "Booking provider page";
+  }
+  if (candidate.sourceClass === "official_property") {
+    return candidate.sourceDomain || "Property page";
+  }
+  return candidate.sourceDomain || "Search result";
+}
+
+function ChipButton({
+  children,
+  onClick,
+}: {
+  children: React.ReactNode;
+  onClick: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className="rounded-full border border-pp-border px-3 py-1.5 text-xs text-pp-text hover:border-pp-accent/40"
+    >
+      {children}
+    </button>
   );
 }
 
@@ -1004,13 +1111,13 @@ function Stepper({
 }) {
   return (
     <div className="rounded-2xl border border-pp-border bg-pp-bg px-3 py-3">
-      <p className="text-xs font-medium uppercase tracking-[0.12em] text-pp-muted">
+      <p className="text-[11px] font-medium uppercase tracking-[0.12em] text-pp-muted">
         {label}
       </p>
       <div className="mt-2 flex items-center justify-between">
         <button
           type="button"
-          className="flex h-9 w-9 items-center justify-center rounded-full border border-pp-border bg-pp-white text-lg text-pp-text"
+          className="flex h-9 w-9 items-center justify-center rounded-full border border-pp-border bg-pp-white text-lg"
           onClick={() => onChange(Math.max(min, value - 1))}
           aria-label={`Decrease ${label}`}
         >
@@ -1019,7 +1126,7 @@ function Stepper({
         <span className="text-lg font-semibold text-pp-text">{value}</span>
         <button
           type="button"
-          className="flex h-9 w-9 items-center justify-center rounded-full border border-pp-border bg-pp-white text-lg text-pp-text"
+          className="flex h-9 w-9 items-center justify-center rounded-full border border-pp-border bg-pp-white text-lg"
           onClick={() => onChange(value + 1)}
           aria-label={`Increase ${label}`}
         >

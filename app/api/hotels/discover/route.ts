@@ -3,7 +3,7 @@ import { validateDiscoverRequest } from "@/lib/validation/schemas";
 import { discoverHotels } from "@/lib/hotels/discover";
 import { toTinyFishError } from "@/lib/tinyfish/errors";
 
-export async function POST(request) {
+export async function POST(request: Request) {
   try {
     const body = await request.json();
     const parsed = validateDiscoverRequest(body);
@@ -16,6 +16,9 @@ export async function POST(request) {
       directUrl: parsed.value.directUrl,
       location: parsed.value.location,
       destination: parsed.value.destination,
+      destinationCity: parsed.value.destinationCity,
+      destinationCountry: parsed.value.destinationCountry,
+      destinationCountryCode: parsed.value.destinationCountryCode,
       limit: parsed.value.limit,
     });
     return NextResponse.json(result);
