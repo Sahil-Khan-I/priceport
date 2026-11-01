@@ -2,11 +2,14 @@
   "name": "priceport",
   "version": "0.1.0",
   "private": true,
+  "type": "module",
   "scripts": {
     "dev": "next dev --port 3005",
     "build": "next build",
     "start": "next start",
-    "lint": "eslint"
+    "lint": "eslint",
+    "test:unit": "node --experimental-strip-types --test tests/*.test.mjs",
+    "test:live": "node scripts/live-hotel-tests.mjs"
   },
   "dependencies": {
     "@tiny-fish/sdk": "^0.11.0",

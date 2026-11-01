@@ -6,7 +6,8 @@ AI-powered global hotel price intelligence. TinyFish agents investigate booking 
 
 ## Stack
 
-- Next.js 16 (App Router) · React 19 · Tailwind CSS v4
+- Next.js 16 (App Router) · React 19 · TypeScript · Tailwind CSS v4
+- Root `app/`, `components/`, `lib/` (no `src/`)
 - `@tiny-fish/sdk` for Search + Agent investigations
 
 ## Setup

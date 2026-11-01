@@ -1,0 +1,144 @@
+{
+  "generatedAt": "2026-11-01T06:35:04.749Z",
+  "stay": {
+    "checkIn": "2026-12-10",
+    "checkOut": "2026-12-13",
+    "adults": 2,
+    "children": 0,
+    "childrenAges": [],
+    "rooms": 1
+  },
+  "concurrencyNote": "App runner enforces max 2 concurrent TinyFish agents",
+  "results": [
+    {
+      "testId": "T01",
+      "description": "Atlantis The Palm × Booking.com × GB proxy",
+      "hotel": "Atlantis The Palm",
+      "location": "Dubai, UAE",
+      "provider": "booking",
+      "market": "GB",
+      "accessMethod": "proxy",
+      "requestedProxyCountry": "GB",
+      "actualProxyCountry": "GB",
+      "investigationId": "inv_cd7ec63b71e641ec",
+      "tinyfishRunId": "1c467856-89ce-4dd0-91aa-576ec515e1e9",
+      "streamingUrl": "https://ip-13-56-82-219.tetra-data.production.tinyfish.io/tf-0c58aedb-5815-412c-9add-7d5065b3e412/stream/0",
+      "startedAt": "2026-11-01T06:31:29.982Z",
+      "finishedAt": "2026-11-01T06:35:03.935Z",
+      "executionStatus": "completed",
+      "propertyMatch": "exact",
+      "roomType": "Atlantis, The Palm (Resort) - UAE",
+      "mealPlan": "varies by room (Excellent breakfast, Excellent breakfast included, Breakfast & dinner included, Breakfast, lunch & dinner included)",
+      "cancellationPolicy": "Most rooms: Free cancellation before December 3, 2026 (7 days before arrival). Some suites: Non-refundable.",
+      "originalPrice": 969,
+      "currency": "GBP",
+      "basePrice": 969,
+      "taxes": null,
+      "mandatoryFees": null,
+      "estimatedFees": null,
+      "unknownFees": [],
+      "totalStatus": "estimated",
+      "fxConversionStatus": "available rate=1.3399 source=frankfurter.app (ECB)",
+      "sourceUrl": "https://www.booking.com/hotel/ae/atlantis-the-palm.html?aid=304142&ucfs=1&arphpl=1&checkin=2026-12-10&checkout=2026-12-13&group_adults=2&req_adults=2&no_rooms=1&group_children=0&req_children=0&hpos=1&hapos=1&sr_order=popularity&srpvid=df5e2e00261a0278&srepoch=1793514761&soh=1&from_sustainable_property_sr=1&from=searchresults",
+      "extractionTimestamp": "2026-11-01T06:34:59.949Z",
+      "validationResult": "PARTIAL",
+      "validationReasons": [
+        "totalStatus=estimated",
+        "propertyMatch=exact"
+      ],
+      "error": null,
+      "evidence": [
+        "Match: Partial name containment",
+        "Match: Location compatible"
+      ],
+      "rawSummary": {
+        "total": 1,
+        "queued": 0,
+        "running": 0,
+        "completed": 1,
+        "failed": 0,
+        "unsupported": 0
+      },
+      "discovery": {
+        "source": "tinyfish_search",
+        "candidateCount": 10,
+        "selected": {
+          "name": "Atlantis, the Palm, Dubai Hotels - Skyscanner",
+          "providerUrl": "https://www.skyscanner.com/hotels/united-arab-emirates/dubai-hotels/atlantis%2C-the-palm/ht-116089954",
+          "officialWebsite": "https://www.skyscanner.com/hotels/united-arab-emirates/dubai-hotels/atlantis%2C-the-palm/ht-116089954"
+        },
+        "note": null
+      }
+    },
+    {
+      "testId": "T02",
+      "description": "Atlantis The Palm × Booking.com × DE proxy",
+      "hotel": "Atlantis The Palm",
+      "provider": "booking",
+      "market": "DE",
+      "accessMethod": "proxy",
+      "executionStatus": "NOT_RUN",
+      "validationResult": "NOT_RUN"
+    },
+    {
+      "testId": "T03",
+      "description": "Atlantis The Palm × Agoda × GB proxy",
+      "hotel": "Atlantis The Palm",
+      "provider": "agoda",
+      "market": "GB",
+      "accessMethod": "proxy",
+      "executionStatus": "NOT_RUN",
+      "validationResult": "NOT_RUN"
+    },
+    {
+      "testId": "T04",
+      "description": "Jumeirah Burj Al Arab × Booking.com × GB proxy",
+      "hotel": "Jumeirah Burj Al Arab",
+      "provider": "booking",
+      "market": "GB",
+      "accessMethod": "proxy",
+      "executionStatus": "NOT_RUN",
+      "validationResult": "NOT_RUN"
+    },
+    {
+      "testId": "T05",
+      "description": "Marina Bay Sands × Booking.com × US proxy",
+      "hotel": "Marina Bay Sands",
+      "provider": "booking",
+      "market": "US",
+      "accessMethod": "proxy",
+      "executionStatus": "NOT_RUN",
+      "validationResult": "NOT_RUN"
+    },
+    {
+      "testId": "T06",
+      "description": "The Leela Palace Bengaluru × Booking.com × IN storefront",
+      "hotel": "The Leela Palace Bengaluru",
+      "provider": "booking",
+      "market": "IN",
+      "accessMethod": "storefront",
+      "executionStatus": "NOT_RUN",
+      "validationResult": "NOT_RUN"
+    },
+    {
+      "testId": "T07",
+      "description": "Hilton London Metropole × Booking.com × GB proxy",
+      "hotel": "Hilton London Metropole",
+      "provider": "booking",
+      "market": "GB",
+      "accessMethod": "proxy",
+      "executionStatus": "NOT_RUN",
+      "validationResult": "NOT_RUN"
+    },
+    {
+      "testId": "T08",
+      "description": "Hotel Adlon Kempinski Berlin × Booking.com × DE proxy",
+      "hotel": "Hotel Adlon Kempinski Berlin",
+      "provider": "booking",
+      "market": "DE",
+      "accessMethod": "proxy",
+      "executionStatus": "NOT_RUN",
+      "validationResult": "NOT_RUN"
+    }
+  ]
+}
