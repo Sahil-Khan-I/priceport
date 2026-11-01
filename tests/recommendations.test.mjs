@@ -17,18 +17,19 @@ const MARKETS = {
 
 function recommendMarkets({ homeCountry, destinationCountryCode }) {
   const selected = [];
-  if (homeCountry && MARKETS[homeCountry]) selected.push(homeCountry);
+  if (homeCountry && PROXY.includes(homeCountry)) selected.push(homeCountry);
   if (
     destinationCountryCode &&
-    MARKETS[destinationCountryCode] &&
+    PROXY.includes(destinationCountryCode) &&
     !selected.includes(destinationCountryCode)
   ) {
     selected.push(destinationCountryCode);
   }
   for (const code of ["GB", "US", "DE"]) {
+    if (selected.length >= 2) break;
     if (PROXY.includes(code) && !selected.includes(code)) selected.push(code);
   }
-  return { recommended: selected.slice(0, 5), allProxyCodes: PROXY };
+  return { recommended: selected.slice(0, 2), allProxyCodes: PROXY };
 }
 
 function previewInvestigationJobs({ providers, markets, hotel }) {
@@ -48,14 +49,23 @@ function previewInvestigationJobs({ providers, markets, hotel }) {
 }
 
 describe("recommendMarkets", () => {
-  it("prioritizes home and destination", () => {
+  it("keeps the default to two proxy markets", () => {
     const result = recommendMarkets({
       homeCountry: "IN",
       destinationCountryCode: "AE",
     });
-    assert.ok(result.recommended.includes("IN"));
-    assert.ok(result.recommended.includes("AE"));
-    assert.ok(result.recommended.includes("GB"));
+    assert.deepEqual(result.recommended, ["GB", "US"]);
+    assert.equal(result.recommended.length, 2);
+  });
+
+  it("keeps a proxy home country in the default pair", () => {
+    const result = recommendMarkets({
+      homeCountry: "DE",
+      destinationCountryCode: "AE",
+    });
+    assert.ok(result.recommended.includes("DE"));
+    assert.equal(result.recommended.length, 2);
+    assert.ok(!result.recommended.includes("AE"));
   });
 
   it("lists documented proxy codes", () => {

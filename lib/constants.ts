@@ -24,8 +24,8 @@ export const SITE = {
 export const NAV_LINKS = [
   { href: "/search", label: "Search" },
   { href: "/tracks", label: "Tracks" },
-  { href: "#how-it-works", label: "How it works" },
-  { href: "#market-lens", label: "Market Lens" },
+  { href: "/#how-it-works", label: "How it works" },
+  { href: "/market-lens", label: "Market Lens" },
 ];
 
 export const PROVIDERS = [

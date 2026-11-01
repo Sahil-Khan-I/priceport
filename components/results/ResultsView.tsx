@@ -163,10 +163,15 @@ export default function ResultsView({
       </div>
 
       {/* A. Decision summary */}
-      <section className="mt-10 rounded-[24px] border border-pp-border bg-pp-white p-6">
+      <section className="mt-10 rounded-2xl border border-pp-border bg-pp-white p-6">
         <p className="text-xs font-semibold uppercase tracking-[0.14em] text-pp-muted">
-          Decision summary
+          Recommendation
         </p>
+        {data.bestVerified?.conversion?.available ? (
+          <p className="mt-3 text-3xl font-semibold tracking-tight text-pp-text">
+            {formatMoney(data.bestVerified.conversion.amount, currency)}
+          </p>
+        ) : null}
         <p className="mt-3 max-w-3xl text-base leading-relaxed text-pp-text">
           {decision.summary ||
             "Waiting for verified offers. No fabricated prices are shown."}

@@ -87,11 +87,10 @@ export default function SearchWorkflow() {
   const [homeCountry, setHomeCountry] = useState("IN");
   const [preferredCurrency, setPreferredCurrency] = useState("INR");
   const [currencyTouched, setCurrencyTouched] = useState(false);
-  const [markets, setMarkets] = useState<string[]>(["GB", "US", "DE"]);
+  const [markets, setMarkets] = useState<string[]>(["GB", "US"]);
   const [marketAccess, setMarketAccess] = useState<Record<string, string>>({
     GB: "proxy",
     US: "proxy",
-    DE: "proxy",
   });
   const [marketReason, setMarketReason] = useState<string[]>([]);
   const [marketsTouched, setMarketsTouched] = useState(false);

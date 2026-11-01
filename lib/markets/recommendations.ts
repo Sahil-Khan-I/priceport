@@ -47,35 +47,51 @@ export function recommendMarkets({
     (m) => m.code,
   );
 
-  if (homeCountry && getMarket(homeCountry)) {
+  // Default is a short proxy comparison (~2 markets × 2–3 providers).
+  // Storefront-only markets stay available to add manually — they are not silent proxy jobs.
+  if (homeCountry && proxyMarkets.includes(homeCountry)) {
     selected.push(homeCountry);
-    reasons.push(
-      `Includes your home market (${homeCountry}) using its configured access method`,
-    );
+    reasons.push(`Includes your home proxy market (${homeCountry})`);
   }
 
   if (
     destinationCountryCode &&
-    getMarket(destinationCountryCode) &&
+    proxyMarkets.includes(destinationCountryCode) &&
     !selected.includes(destinationCountryCode)
   ) {
     selected.push(destinationCountryCode);
     reasons.push(
-      `Includes destination market (${destinationCountryCode}) when configured`,
+      `Includes destination proxy market (${destinationCountryCode})`,
     );
   }
 
   for (const code of ["GB", "US", "DE"]) {
+    if (selected.length >= 2) break;
     if (proxyMarkets.includes(code) && !selected.includes(code)) {
       selected.push(code);
     }
   }
 
+  if (homeCountry && getMarket(homeCountry) && !proxyMarkets.includes(homeCountry)) {
+    reasons.push(
+      `${homeCountry} is storefront-only — add it in Market Lens if you want that perspective; it is not a local-IP proxy`,
+    );
+  }
+  if (
+    destinationCountryCode &&
+    getMarket(destinationCountryCode) &&
+    !proxyMarkets.includes(destinationCountryCode)
+  ) {
+    reasons.push(
+      `${destinationCountryCode} is storefront-only and left out of the default set`,
+    );
+  }
+
   reasons.push(
-    "Proxy markets use documented TinyFish countries only; storefront markets are labelled honestly",
+    "Default stays small so an ordinary search is about 4–6 live investigations. Expand markets if you want more.",
   );
 
-  const recommended = selected.slice(0, 5);
+  const recommended = selected.slice(0, 2);
 
   return {
     recommended,

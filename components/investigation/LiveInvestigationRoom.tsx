@@ -3,19 +3,28 @@
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import Container from "@/components/ui/Container";
-import Badge from "@/components/ui/Badge";
 import Button from "@/components/ui/Button";
-import InvestigationStatus from "@/components/investigation/InvestigationStatus";
-import BrowserPreview from "@/components/investigation/BrowserPreview";
-import { formatStatusLabel } from "@/lib/utils";
+import {
+  accessLabel,
+  dedupeEvents,
+  derivePriceInsights,
+  describeEvent,
+  groupJobsByProvider,
+  isTerminalInvestigation,
+  mergeJobs,
+  summarizeProgress,
+  type LiveEvent,
+  type LiveJob,
+} from "@/lib/investigations/live-view";
 
 type InvestigationPayload = {
   id: string;
   status: string;
+  updatedAt?: string;
   request?: any;
   summary?: any;
-  jobs?: any[];
-  events?: any[];
+  jobs?: LiveJob[];
+  events?: LiveEvent[];
 };
 
 export default function LiveInvestigationRoom({
@@ -25,20 +34,47 @@ export default function LiveInvestigationRoom({
 }) {
   const [data, setData] = useState<InvestigationPayload | null>(null);
   const [error, setError] = useState("");
-  const [events, setEvents] = useState<any[]>([]);
+  const [events, setEvents] = useState<LiveEvent[]>([]);
   const [actionBusy, setActionBusy] = useState("");
+  const [openProvider, setOpenProvider] = useState<string | null>(null);
+  const [watchLive, setWatchLive] = useState(false);
+  const [showAllEvents, setShowAllEvents] = useState(false);
+  const [showDiagnostics, setShowDiagnostics] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
+    let poll: ReturnType<typeof setInterval> | null = null;
+
+    function applySnapshot(json: InvestigationPayload) {
+      setData((prev) => {
+        if (
+          prev?.updatedAt &&
+          json.updatedAt &&
+          json.updatedAt < prev.updatedAt &&
+          !isTerminalInvestigation(json.status)
+        ) {
+          return {
+            ...prev,
+            jobs: mergeJobs(prev.jobs || [], json.jobs || []),
+          };
+        }
+        return {
+          ...json,
+          jobs: mergeJobs(prev?.jobs || [], json.jobs || []),
+        };
+      });
+      setEvents((prev) => dedupeEvents([...(json.events || []), ...prev]));
+    }
 
     async function load() {
       try {
         const response = await fetch(`/api/investigations/${investigationId}`);
         const json = await response.json();
         if (!response.ok) throw new Error(json.error || "Failed to load");
-        if (!cancelled) {
-          setData(json);
-          setEvents(json.events || []);
+        if (!cancelled) applySnapshot(json);
+        if (!cancelled && isTerminalInvestigation(json.status) && poll) {
+          clearInterval(poll);
+          poll = null;
         }
       } catch (err) {
         if (!cancelled) {
@@ -62,13 +98,15 @@ export default function LiveInvestigationRoom({
                 ...prev,
                 status: payload.status,
                 summary: payload.summary,
-                jobs: (prev.jobs || []).map((job: any) => {
-                  const patch = payload.jobs?.find((j: any) => j.id === job.id);
-                  return patch ? { ...job, ...patch } : job;
-                }),
+                updatedAt: payload.updatedAt || new Date().toISOString(),
+                jobs: mergeJobs(prev.jobs || [], payload.jobs || prev.jobs || []),
               }
             : prev,
         );
+        if (isTerminalInvestigation(payload.status)) {
+          source.close();
+          if (poll) clearInterval(poll);
+        }
       } catch {
         // ignore malformed
       }
@@ -77,10 +115,7 @@ export default function LiveInvestigationRoom({
     source.addEventListener("event", (evt) => {
       try {
         const payload = JSON.parse(evt.data);
-        setEvents((prev) => {
-          if (prev.some((e) => e.id === payload.id)) return prev;
-          return [...prev, payload];
-        });
+        setEvents((prev) => dedupeEvents([...prev, payload]));
       } catch {
         // ignore
       }
@@ -92,33 +127,56 @@ export default function LiveInvestigationRoom({
     });
 
     source.onerror = () => {
-      // Fall back to polling
       source.close();
     };
 
-    const poll = setInterval(load, 4000);
+    poll = setInterval(load, 4000);
     return () => {
       cancelled = true;
-      clearInterval(poll);
+      if (poll) clearInterval(poll);
       source.close();
     };
   }, [investigationId]);
 
-  const previewUrl = useMemo(() => {
-    return data?.jobs?.find((j) => j.streamingUrl)?.streamingUrl || null;
-  }, [data]);
-
-  const done = ["completed", "failed", "partial"].includes(data?.status || "");
+  const jobs = useMemo(() => data?.jobs || [], [data?.jobs]);
+  const progress = useMemo(() => summarizeProgress(jobs), [jobs]);
+  const groups = useMemo(() => groupJobsByProvider(jobs), [jobs]);
+  const findings = useMemo(
+    () => jobs.filter((job) => job.offer?.totalPrice != null),
+    [jobs],
+  );
+  const insights = useMemo(() => derivePriceInsights(jobs), [jobs]);
+  const timeline = useMemo(() => {
+    const lines = dedupeEvents(events)
+      .map((event) => ({
+        id: event.id,
+        at: event.at,
+        text: describeEvent(event, jobs),
+      }))
+      .filter((row) => row.text);
+    return lines.reverse();
+  }, [events, jobs]);
+  const previewUrl = jobs.find((job) => job.streamingUrl)?.streamingUrl || null;
+  const running = !isTerminalInvestigation(data?.status);
+  const failedCount = jobs.filter((job) => job.status === "failed").length;
+  const stay = data?.request?.bookingDetails;
+  const providers = [
+    ...new Set(jobs.map((job) => job.providerName || job.provider).filter(Boolean)),
+  ];
+  const markets = [...new Set(jobs.map((job) => job.market).filter(Boolean))];
 
   async function cancelInvestigation() {
     setActionBusy("cancel");
     try {
-      const response = await fetch(`/api/investigations/${investigationId}/cancel`, {
-        method: "POST",
-      });
+      const response = await fetch(
+        `/api/investigations/${investigationId}/cancel`,
+        { method: "POST" },
+      );
       const json = await response.json();
       if (!response.ok) throw new Error(json.error || "Cancel failed");
-      setData((prev) => (prev ? { ...prev, status: json.status, summary: json.summary } : prev));
+      setData((prev) =>
+        prev ? { ...prev, status: json.status, summary: json.summary } : prev,
+      );
     } catch (err) {
       setError(err instanceof Error ? err.message : "Cancel failed");
     } finally {
@@ -129,14 +187,19 @@ export default function LiveInvestigationRoom({
   async function retryFailed() {
     setActionBusy("retry");
     try {
-      const response = await fetch(`/api/investigations/${investigationId}/retry`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({}),
-      });
+      const response = await fetch(
+        `/api/investigations/${investigationId}/retry`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({}),
+        },
+      );
       const json = await response.json();
       if (!response.ok) throw new Error(json.error || "Retry failed");
-      setData((prev) => (prev ? { ...prev, status: json.status, summary: json.summary } : prev));
+      setData((prev) =>
+        prev ? { ...prev, status: json.status, summary: json.summary } : prev,
+      );
     } catch (err) {
       setError(err instanceof Error ? err.message : "Retry failed");
     } finally {
@@ -161,173 +224,326 @@ export default function LiveInvestigationRoom({
   }
 
   return (
-    <div className="bg-pp-dark py-12 sm:py-16">
-      <Container>
-        <div className="flex flex-wrap items-start justify-between gap-4">
+    <div className="bg-pp-bg">
+      <Container className="py-8 sm:py-12">
+        <header className="flex flex-col gap-6 border-b border-pp-border pb-6 sm:flex-row sm:items-end sm:justify-between">
           <div>
-            <p className="text-xs uppercase tracking-[0.16em] text-white/45">
-              Investigation Room
+            <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-pp-muted">
+              Live intelligence
+              {running ? (
+                <span className="ml-2 inline-flex items-center gap-1.5 normal-case tracking-normal text-pp-accent">
+                  <span className="h-1.5 w-1.5 rounded-full bg-pp-accent" />
+                  Researching
+                </span>
+              ) : null}
             </p>
-            <h1 className="mt-2 text-3xl font-semibold text-white">
-              {data.request?.hotel?.name}
+            <h1 className="mt-2 text-3xl font-semibold tracking-tight text-pp-text">
+              {data.request?.hotel?.name || "Hotel investigation"}
             </h1>
-            <p className="mt-2 text-sm text-white/60">
-              {data.request?.bookingDetails?.checkIn} →{" "}
-              {data.request?.bookingDetails?.checkOut} ·{" "}
-              {data.request?.bookingDetails?.adults} adults ·{" "}
-              {data.request?.bookingDetails?.rooms} room(s)
+            <p className="mt-2 text-sm text-pp-muted">
+              {[
+                data.request?.hotel?.location,
+                stay?.checkIn && stay?.checkOut
+                  ? `${stay.checkIn} – ${stay.checkOut}`
+                  : null,
+                stay?.adults != null ? `${stay.adults} adults` : null,
+                stay?.rooms != null ? `${stay.rooms} room` : null,
+              ]
+                .filter(Boolean)
+                .join(" · ")}
             </p>
-            <p className="mt-2 font-mono text-xs text-white/35">
-              {data.id} · status {data.status}
+            <p className="mt-2 text-sm text-pp-text">
+              Comparing {providers.length || "selected"} providers across{" "}
+              {markets.length || "selected"} market perspectives.
             </p>
           </div>
           <div className="flex flex-wrap gap-2">
-            <Badge tone="dark">
-              {data.summary?.completed || 0}/{data.summary?.total || 0} completed
-            </Badge>
-            {!done ? (
+            {running ? (
               <Button
-                variant="dark"
+                variant="secondary"
                 onClick={cancelInvestigation}
                 disabled={actionBusy === "cancel"}
               >
-                {actionBusy === "cancel" ? "Cancelling…" : "Cancel queued"}
+                {actionBusy === "cancel" ? "Cancelling…" : "Cancel"}
               </Button>
             ) : null}
-            {(data.summary?.failed || 0) > 0 ? (
+            {failedCount > 0 ? (
               <Button
-                variant="dark"
+                variant="secondary"
                 onClick={retryFailed}
                 disabled={actionBusy === "retry"}
               >
                 {actionBusy === "retry" ? "Retrying…" : "Retry failed"}
               </Button>
             ) : null}
-            {done ? (
-              <Button href={`/results/${data.id}`} variant="dark">
-                View results
-              </Button>
+            {!running ? (
+              <Button href={`/results/${data.id}`}>View results</Button>
             ) : null}
+            <Button href="/search" variant="secondary">
+              New search
+            </Button>
           </div>
-        </div>
+        </header>
 
-        <div className="mt-8 grid gap-5 lg:grid-cols-[1.15fr_0.85fr]">
-          <div className="grid gap-3 sm:grid-cols-2">
-            {(data.jobs || []).map((job: any) => (
-              <article
-                key={job.id}
-                className="rounded-2xl border border-white/10 bg-pp-dark-card p-4"
-              >
-                <div className="flex items-start justify-between gap-3">
-                  <div>
-                    <p className="text-sm font-medium text-white">
-                      {job.providerName}
-                    </p>
-                    <p className="mt-1 text-xs text-white/50">
-                      × {job.market} ·{" "}
-                      {String(job.accessMethod || "")
-                        .toLowerCase()
-                        .includes("proxy") || job.actualProxyCountry
-                        ? `Proxy${job.actualProxyCountry ? ` · ${job.actualProxyCountry}` : ""}`
-                        : String(job.accessMethod || "")
-                              .toLowerCase()
-                              .includes("storefront")
-                          ? "Storefront"
-                          : job.accessMethod || "Access unknown"}
-                    </p>
-                  </div>
-                  <InvestigationStatus status={job.status} />
-                </div>
-                {job.tinyfishRunId ? (
-                  <p className="mt-3 font-mono text-[11px] text-white/35">
-                    run {job.tinyfishRunId}
-                  </p>
-                ) : null}
-                {job.error ? (
-                  <p className="mt-3 text-xs text-pp-coral">{job.error}</p>
-                ) : null}
-                {job.offer?.totalPrice != null ? (
-                  <p className="mt-3 text-sm text-white">
-                    {job.offer.currency} {job.offer.totalPrice}
-                    <span className="ml-2 text-xs text-white/45">
-                      match {job.offer.propertyMatch} · verify{" "}
-                      {job.offer.verificationStatus || "—"}
-                    </span>
-                  </p>
-                ) : null}
-                {job.offer?.roomType ? (
-                  <p className="mt-2 text-xs text-white/45">
-                    Room {job.offer.roomType}
-                    {job.offer.mealPlan ? ` · ${job.offer.mealPlan}` : ""}
-                  </p>
-                ) : null}
-                {job.sourceUrl ? (
-                  <a
-                    href={job.sourceUrl}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="mt-2 inline-block text-xs text-pp-accent hover:underline"
-                  >
-                    Source URL
-                  </a>
-                ) : null}
-              </article>
-            ))}
-          </div>
-
-          <div className="space-y-4">
-            <BrowserPreview
-              streamingUrl={previewUrl}
-              label={
-                previewUrl
-                  ? "Live TinyFish browser preview"
-                  : "Browser preview (appears when TinyFish sends STREAMING_URL)"
-              }
-            />
-            <div className="rounded-2xl border border-white/10 bg-pp-dark-card p-4">
-              <p className="text-xs uppercase tracking-[0.14em] text-white/45">
-                Activity feed
+        <section className="mt-8">
+          <div className="flex flex-wrap items-end justify-between gap-3">
+            <div>
+              <h2 className="text-lg font-semibold text-pp-text">
+                {running ? "Researching your stay" : "Research finished"}
+              </h2>
+              <p className="mt-1 max-w-xl text-sm text-pp-muted">
+                Priceport is checking the selected booking providers and comparing
+                their available offers.
               </p>
-              <ul className="mt-3 max-h-80 space-y-2.5 overflow-y-auto">
-                {events.length === 0 ? (
-                  <li className="text-sm text-white/50">Waiting for events…</li>
-                ) : (
-                  events
-                    .slice()
-                    .reverse()
-                    .map((event) => (
-                      <li
-                        key={event.id}
-                        className="flex gap-3 text-sm text-white/70"
-                      >
-                        <span className="w-16 shrink-0 font-mono text-[11px] text-white/35">
-                          {new Date(event.at).toLocaleTimeString()}
-                        </span>
-                        <span>
-                          <span className="text-white/40">
-                            {formatStatusLabel(event.type)}
-                          </span>
-                          {" · "}
-                          {event.message}
-                        </span>
-                      </li>
-                    ))
-                )}
-              </ul>
             </div>
+            <p className="text-sm text-pp-text">
+              {progress.terminal} of {progress.total} investigations finished
+            </p>
           </div>
-        </div>
+          <div className="mt-4 h-1.5 overflow-hidden rounded-full bg-pp-bg-secondary">
+            <div
+              className="h-full bg-pp-accent transition-[width] duration-500"
+              style={{ width: `${Math.round(progress.fraction * 100)}%` }}
+            />
+          </div>
+          <p className="mt-3 text-sm text-pp-muted">
+            {progress.completed} completed · {progress.researching} researching ·{" "}
+            {progress.waiting} waiting
+            {progress.attention
+              ? ` · ${progress.attention} need attention`
+              : ""}
+          </p>
+        </section>
 
-        <p className="mt-8 text-sm text-white/40">
-          Events shown here come from persisted TinyFish job updates. Progress
-          text is only displayed when TinyFish emits it.
-        </p>
-        <p className="mt-2 text-sm text-white/40">
+        <section className="mt-6 grid grid-cols-2 gap-3 sm:grid-cols-4">
+          <Metric label="Providers" value={progress.providers} />
+          <Metric label="Markets" value={progress.markets} />
+          <Metric label="Offers found" value={progress.offers} />
+          <Metric label="Need attention" value={progress.attention} />
+        </section>
+
+        <section className="mt-10">
+          <h2 className="text-xl font-semibold text-pp-text">Price findings</h2>
+          <p className="mt-1 text-sm text-pp-muted">
+            Offers discovered so far. Final comparisons appear as evidence is
+            verified.
+          </p>
+          {insights.length ? (
+            <ul className="mt-4 space-y-2">
+              {insights.map((insight) => (
+                <li
+                  key={insight}
+                  className="rounded-xl border border-pp-border bg-pp-white px-4 py-3 text-sm text-pp-text"
+                >
+                  {insight}
+                </li>
+              ))}
+            </ul>
+          ) : null}
+          {findings.length === 0 ? (
+            <div className="mt-4 rounded-2xl border border-dashed border-pp-border bg-pp-white px-5 py-8">
+              <p className="text-sm text-pp-text">
+                No offers yet. Priceport is still checking{" "}
+                {providers.join(", ") || "the selected providers"}.
+              </p>
+              <p className="mt-2 text-sm text-pp-muted">
+                Prices appear here as soon as a provider returns one. Nothing is
+                filled in early.
+              </p>
+            </div>
+          ) : (
+            <ul className="mt-4 space-y-3">
+              {findings.map((job) => (
+                <li
+                  key={job.id}
+                  className="rounded-2xl border border-pp-border bg-pp-white px-5 py-4"
+                >
+                  <div className="flex flex-wrap items-start justify-between gap-4">
+                    <div>
+                      <p className="text-sm font-medium text-pp-text">
+                        {job.providerName} · {job.market}
+                      </p>
+                      <p className="mt-1 text-xs text-pp-muted">{accessLabel(job)}</p>
+                      <p className="mt-2 text-xs text-pp-muted">
+                        {[job.offer?.roomType, job.offer?.mealPlan]
+                          .filter(Boolean)
+                          .join(" · ") || "Room details still unknown"}
+                      </p>
+                    </div>
+                    <div className="text-right">
+                      <p className="text-2xl font-semibold tracking-tight text-pp-text">
+                        {job.offer?.currency} {job.offer?.totalPrice}
+                      </p>
+                      <p className="mt-1 text-xs text-pp-muted">
+                        {job.offer?.totalStatus || "Total status unknown"} ·{" "}
+                        {job.offer?.verificationStatus || "Not verified yet"}
+                      </p>
+                      {job.sourceUrl ? (
+                        <a
+                          href={job.sourceUrl}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="mt-2 inline-block text-sm text-pp-accent hover:underline"
+                        >
+                          Open source
+                        </a>
+                      ) : null}
+                    </div>
+                  </div>
+                </li>
+              ))}
+            </ul>
+          )}
+        </section>
+
+        <section className="mt-10">
+          <h2 className="text-lg font-semibold text-pp-text">Providers</h2>
+          <div className="mt-3 divide-y divide-pp-border rounded-2xl border border-pp-border bg-pp-white">
+            {groups.map((group) => {
+              const open = openProvider === group.provider;
+              return (
+                <div key={group.provider}>
+                  <button
+                    type="button"
+                    className="flex w-full items-center justify-between gap-3 px-4 py-4 text-left"
+                    onClick={() =>
+                      setOpenProvider(open ? null : group.provider)
+                    }
+                    aria-expanded={open}
+                  >
+                    <span>
+                      <span className="block text-sm font-medium text-pp-text">
+                        {group.provider}
+                      </span>
+                      <span className="mt-1 block text-xs text-pp-muted">
+                        {group.markets} markets · {group.completed} finished ·{" "}
+                        {group.offers} offers
+                      </span>
+                    </span>
+                    <span className="text-xs text-pp-muted">{open ? "Hide" : "Details"}</span>
+                  </button>
+                  {open ? (
+                    <ul className="space-y-2 px-4 pb-4">
+                      {group.jobs.map((job) => (
+                        <li
+                          key={job.id}
+                          className="rounded-xl bg-pp-bg px-3 py-3 text-sm"
+                        >
+                          <div className="flex flex-wrap items-center justify-between gap-2">
+                            <span className="font-medium text-pp-text">
+                              {job.market} · {accessLabel(job)}
+                            </span>
+                            <span className="text-xs text-pp-muted">{job.status}</span>
+                          </div>
+                          {job.offer?.totalPrice != null ? (
+                            <p className="mt-1 text-pp-text">
+                              {job.offer.currency} {job.offer.totalPrice}
+                            </p>
+                          ) : null}
+                          {job.error ? (
+                            <p className="mt-1 text-xs text-pp-coral">{job.error}</p>
+                          ) : null}
+                        </li>
+                      ))}
+                    </ul>
+                  ) : null}
+                </div>
+              );
+            })}
+          </div>
+        </section>
+
+        {previewUrl ? (
+          <section className="mt-8">
+            {!watchLive ? (
+              <Button variant="secondary" onClick={() => setWatchLive(true)}>
+                Watch live browser
+              </Button>
+            ) : (
+              <div className="rounded-2xl border border-pp-border bg-pp-white p-4">
+                <div className="flex items-center justify-between gap-3">
+                  <p className="text-sm font-medium text-pp-text">Live browser</p>
+                  <button
+                    type="button"
+                    className="text-sm text-pp-accent"
+                    onClick={() => setWatchLive(false)}
+                  >
+                    Close
+                  </button>
+                </div>
+                <iframe
+                  title="TinyFish live browser"
+                  src={previewUrl}
+                  className="mt-3 aspect-video w-full rounded-xl border border-pp-border bg-pp-bg"
+                />
+              </div>
+            )}
+          </section>
+        ) : null}
+
+        <section className="mt-10">
+          <h2 className="text-lg font-semibold text-pp-text">Activity</h2>
+          <ul className="mt-3 space-y-2">
+            {(showAllEvents ? timeline : timeline.slice(0, 5)).map((row) => (
+              <li key={row.id} className="text-sm text-pp-muted">
+                <span className="text-pp-text">{row.text}</span>
+              </li>
+            ))}
+            {timeline.length === 0 ? (
+              <li className="text-sm text-pp-muted">Waiting for the first update.</li>
+            ) : null}
+          </ul>
+          {timeline.length > 5 ? (
+            <button
+              type="button"
+              className="mt-3 text-sm text-pp-accent"
+              onClick={() => setShowAllEvents((value) => !value)}
+            >
+              {showAllEvents ? "Show less" : "View more"}
+            </button>
+          ) : null}
+        </section>
+
+        <section className="mt-8 border-t border-pp-border pt-4">
+          <button
+            type="button"
+            className="text-sm text-pp-muted hover:text-pp-text"
+            onClick={() => setShowDiagnostics((value) => !value)}
+          >
+            {showDiagnostics ? "Hide diagnostics" : "Diagnostics"}
+          </button>
+          {showDiagnostics ? (
+            <div className="mt-3 space-y-2 text-xs text-pp-muted">
+              <p>Investigation {data.id}</p>
+              <p>Status {data.status}</p>
+              {jobs
+                .filter((job) => job.tinyfishRunId)
+                .map((job) => (
+                  <p key={job.id}>
+                    {job.providerName} · {job.market}: {job.tinyfishRunId}
+                  </p>
+                ))}
+            </div>
+          ) : null}
+        </section>
+
+        {error ? <p className="mt-4 text-sm text-pp-coral">{error}</p> : null}
+
+        <p className="mt-8 text-sm text-pp-muted">
           <Link href="/search" className="text-pp-accent hover:underline">
             Start another search
           </Link>
         </p>
       </Container>
+    </div>
+  );
+}
+
+function Metric({ label, value }: { label: string; value: number }) {
+  return (
+    <div className="rounded-2xl border border-pp-border bg-pp-white px-4 py-3">
+      <p className="text-[11px] uppercase tracking-[0.12em] text-pp-muted">{label}</p>
+      <p className="mt-1 text-2xl font-semibold text-pp-text">{value}</p>
     </div>
   );
 }
