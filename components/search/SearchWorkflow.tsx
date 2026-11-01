@@ -296,14 +296,19 @@ export default function SearchWorkflow() {
   });
 
   function selectDestination(next: Destination) {
+    const changed = destination?.id !== next.id;
     setDestination(next);
     setDestinationQuery(next.label);
     setOpenMenu("none");
-    applyMarketDefaults(homeCountry, next);
-    if (hotel && hotelQuery) {
-      // Force re-suggest under new destination context
-      suggestCache.current.clear();
+    if (changed) {
+      setHotel(null);
+      setHotelQuery("");
+      setHotelSuggestions([]);
+      setSuggestError("");
+      suggestAbort.current?.abort();
     }
+    applyMarketDefaults(homeCountry, next);
+    if (changed) suggestCache.current.clear();
   }
 
   function selectHotel(candidate: HotelCandidate) {
@@ -535,6 +540,10 @@ export default function SearchWorkflow() {
                     onChange={(e) => {
                       setDestinationQuery(e.target.value);
                       setDestination(null);
+                      setHotel(null);
+                      setHotelQuery("");
+                      setHotelSuggestions([]);
+                      suggestAbort.current?.abort();
                       setOpenMenu("destination");
                       setDestHighlight(0);
                     }}
@@ -543,6 +552,9 @@ export default function SearchWorkflow() {
                     placeholder="Where are you going?"
                     className={`${fieldClass} mt-2`}
                     autoComplete="off"
+                    role="combobox"
+                    aria-autocomplete="list"
+                    aria-expanded={openMenu === "destination"}
                     aria-controls="destination-listbox"
                   />
                   {openMenu === "destination" ? (
@@ -647,6 +659,9 @@ export default function SearchWorkflow() {
                     }
                     className={`${fieldClass} mt-2`}
                     autoComplete="off"
+                    role="combobox"
+                    aria-autocomplete="list"
+                    aria-expanded={openMenu === "hotel"}
                     aria-controls="hotel-listbox"
                   />
                   {suggestLoading ? (
@@ -655,13 +670,18 @@ export default function SearchWorkflow() {
                     </p>
                   ) : null}
                   {openMenu === "hotel" &&
-                  (hotelSuggestions.length > 0 || suggestError) ? (
+                  (hotelSuggestions.length > 0 || suggestError || suggestLoading) ? (
                     <ul
                       id="hotel-listbox"
                       role="listbox"
                       className="absolute left-0 right-0 z-40 mt-2 max-h-80 overflow-auto rounded-2xl border border-pp-border bg-white p-1.5 shadow-[0_22px_60px_rgba(23,32,51,0.16)]"
                     >
-                      {suggestError && hotelSuggestions.length === 0 ? (
+                      {suggestLoading && hotelSuggestions.length === 0 ? (
+                        <li className="flex items-center gap-3 px-4 py-4 text-sm text-pp-muted">
+                          <span className="h-4 w-4 animate-spin rounded-full border-2 border-pp-accent/25 border-t-pp-accent" />
+                          Searching verified property pages in {destination?.city}…
+                        </li>
+                      ) : suggestError && hotelSuggestions.length === 0 ? (
                         <li className="px-4 py-3 text-sm text-pp-muted">
                           {suggestError}
                         </li>
@@ -790,7 +810,8 @@ export default function SearchWorkflow() {
                         className={`mt-2 ${fieldClass}`}
                       />
                     </label>
-                    <label className="text-sm font-medium text-pp-text">
+                    <div className="hidden pb-4 text-center text-xs font-medium text-pp-muted sm:block">to</div>
+                    <label className="text-xs font-semibold text-pp-text">
                       Check-out
                       <input
                         type="date"
@@ -800,7 +821,7 @@ export default function SearchWorkflow() {
                       />
                     </label>
                   </div>
-                  <div className="mt-4 grid gap-2 sm:grid-cols-3">
+                  <div className="mt-3 grid gap-2 sm:grid-cols-3">
                     <Stepper label="Adults" value={adults} min={1} onChange={setAdults} />
                     <Stepper
                       label="Children"
@@ -815,7 +836,7 @@ export default function SearchWorkflow() {
                     />
                     <Stepper label="Rooms" value={rooms} min={1} onChange={setRooms} />
                   </div>
-                  <div className="mt-5 flex flex-wrap items-center justify-between gap-2 border-t border-pp-border pt-4">
+                  <div className="mt-4 flex flex-wrap items-center justify-between gap-2 border-t border-pp-border pt-4">
                     <div>
                       <p className="text-sm font-semibold text-pp-text">Ready for a first comparison</p>
                       <p className="mt-1 text-xs text-pp-muted">2 booking sites · 2 market perspectives · 4 live checks</p>
@@ -1242,23 +1263,25 @@ function Stepper({
   onChange: (value: number) => void;
 }) {
   return (
-    <div className="rounded-2xl border border-pp-border bg-pp-bg px-3 py-3">
-      <p className="text-[11px] font-medium uppercase tracking-[0.12em] text-pp-muted">
-        {label}
-      </p>
-      <div className="mt-2 flex items-center justify-between">
+    <div className="flex items-center justify-between gap-3 rounded-xl border border-pp-border bg-white px-3 py-2.5">
+      <div className="min-w-0">
+        <p className="text-xs font-semibold text-pp-text">{label}</p>
+        <p className="mt-0.5 text-[10px] text-pp-muted">{label === "Adults" ? "Age 18+" : label === "Children" ? "Age 0–17" : "For this stay"}</p>
+      </div>
+      <div className="flex shrink-0 items-center gap-3">
         <button
           type="button"
-          className="flex h-9 w-9 items-center justify-center rounded-full border border-pp-border bg-pp-white text-lg"
+          disabled={value <= min}
+          className="flex h-8 w-8 items-center justify-center rounded-full border border-pp-border bg-white text-base text-pp-text transition hover:border-pp-accent hover:text-pp-accent disabled:cursor-not-allowed disabled:opacity-35"
           onClick={() => onChange(Math.max(min, value - 1))}
           aria-label={`Decrease ${label}`}
         >
           −
         </button>
-        <span className="text-lg font-semibold text-pp-text">{value}</span>
+        <span className="min-w-4 text-center text-sm font-semibold tabular-nums text-pp-text">{value}</span>
         <button
           type="button"
-          className="flex h-9 w-9 items-center justify-center rounded-full border border-pp-border bg-pp-white text-lg"
+          className="flex h-8 w-8 items-center justify-center rounded-full border border-pp-border bg-white text-base text-pp-text transition hover:border-pp-accent hover:text-pp-accent"
           onClick={() => onChange(value + 1)}
           aria-label={`Increase ${label}`}
         >
