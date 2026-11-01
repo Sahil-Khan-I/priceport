@@ -13,11 +13,18 @@ import { normalizeJobOffer } from "./normalize-offer";
 import { rankOffers } from "@/lib/pricing/ranking";
 import { recordOfferObservation } from "@/lib/storage/observations-store";
 import { resolveStreamOutcome } from "./lifecycle";
-import { JOB_STATUS, JOB_TIMEOUT_MS, mapTinyFishEventToStatus } from "./status";
 import { expandPairs, filterNewPairs, pairKey } from "./job-plan";
+import {
+  applyDeadline,
+  canReplaceJobStatus,
+  planSearchPairs,
+  shouldFinalize,
+} from "./deadline";
+import { INVESTIGATION_DEADLINE_MS, JOB_STATUS, JOB_TIMEOUT_MS, mapTinyFishEventToStatus } from "./status";
 import { getMarket } from "@/lib/markets/config";
 
 const running = new Set();
+const liveAborts = new Map();
 
 export async function createInvestigation(input: any) {
   if (!isTinyFishConfigured()) {
@@ -29,21 +36,32 @@ export async function createInvestigation(input: any) {
   }
 
   const id = `inv_${randomUUID().replace(/-/g, "").slice(0, 16)}`;
-  const jobs = materializeJobs({
-    providers: input.providers,
-    markets: input.markets,
-    marketAccess: input.marketAccess,
-    hotel: input.hotel,
-    bookingDetails: input.bookingDetails,
-    stage: "initial",
-  });
+  const plan = planSearchPairs(input.providers || [], input.markets || []);
+  const startedAt = new Date();
+  const deadlineAt = new Date(startedAt.getTime() + INVESTIGATION_DEADLINE_MS).toISOString();
+  const jobs = [
+    ...materializePlanned(plan.initial, {
+      marketAccess: input.marketAccess,
+      hotel: input.hotel,
+      bookingDetails: input.bookingDetails,
+      status: JOB_STATUS.QUEUED,
+    }),
+    ...materializePlanned(plan.deferred, {
+      marketAccess: input.marketAccess,
+      hotel: input.hotel,
+      bookingDetails: input.bookingDetails,
+      status: JOB_STATUS.DEFERRED,
+    }),
+  ];
 
   const record = {
     id,
-    createdAt: new Date().toISOString(),
-    updatedAt: new Date().toISOString(),
+    createdAt: startedAt.toISOString(),
+    updatedAt: startedAt.toISOString(),
     status: "queued",
     stage: "initial",
+    deadlineAt,
+    finalizedAt: null,
     request: input,
     timings: {
       requestReceivedAt: input.receivedAt || new Date().toISOString(),
@@ -55,7 +73,7 @@ export async function createInvestigation(input: any) {
       {
         id: `evt_${randomUUID().slice(0, 8)}`,
         type: "INVESTIGATION_CREATED",
-        message: `Created ${jobs.length} investigation job(s)`,
+        message: `Checking ${plan.initial.length} provider${plan.initial.length === 1 ? "" : "s"} first. ${plan.deferred.length} later market check${plan.deferred.length === 1 ? "" : "s"} saved.`,
         jobId: null,
         at: new Date().toISOString(),
       },
@@ -129,7 +147,8 @@ export async function expandInvestigation(id: string) {
     pairs,
   );
 
-  if (!freshPairs.length) {
+  const hasDeferred = record.jobs.some((job) => job.status === JOB_STATUS.DEFERRED);
+  if (!freshPairs.length && !hasDeferred) {
     return { record, added: 0 };
   }
 
@@ -145,6 +164,13 @@ export async function expandInvestigation(id: string) {
   );
 
   const updated = await updateInvestigation(id, (rec) => {
+    for (const job of rec.jobs) {
+      if (job.status === JOB_STATUS.DEFERRED) {
+        job.status = JOB_STATUS.QUEUED;
+        job.stage = "expanded";
+        job.error = null;
+      }
+    }
     const seen = new Set(rec.jobs.map((job) => pairKey(job.provider, job.market)));
     for (const job of created) {
       const key = pairKey(job.provider, job.market);
@@ -154,6 +180,7 @@ export async function expandInvestigation(id: string) {
     }
     rec.stage = "expanded";
     rec.status = "running";
+    rec.finalizedAt = null;
     rec.summary = summarize(rec.jobs);
     rec.events.push({
       id: `evt_${randomUUID().slice(0, 8)}`,
@@ -166,11 +193,7 @@ export async function expandInvestigation(id: string) {
   });
 
   const queuedIds = (updated?.jobs || [])
-    .filter(
-      (job) =>
-        job.status === JOB_STATUS.QUEUED &&
-        created.some((next) => next.id === job.id),
-    )
+    .filter((job) => job.status === JOB_STATUS.QUEUED)
     .map((job) => job.id);
 
   void Promise.all(
@@ -188,6 +211,34 @@ export async function expandInvestigation(id: string) {
   return { record: updated, added: created.length };
 }
 
+function materializePlanned(
+  pairs: Array<{ provider: string; market: string; stage: "initial" | "deferred" | "expanded" }>,
+  {
+    marketAccess,
+    hotel,
+    bookingDetails,
+    status,
+  }: {
+    marketAccess?: Record<string, string>;
+    hotel: any;
+    bookingDetails: any;
+    status: string;
+  },
+) {
+  return materializeJobs({
+    providers: [...new Set(pairs.map((pair) => pair.provider))],
+    markets: [...new Set(pairs.map((pair) => pair.market))],
+    marketAccess,
+    hotel,
+    bookingDetails,
+    stage: pairs[0]?.stage === "deferred" ? "deferred" : pairs[0]?.stage === "expanded" ? "expanded" : "initial",
+  })
+    .filter((job) =>
+      pairs.some((pair) => pairKey(pair.provider, pair.market) === pairKey(job.provider, job.market)),
+    )
+    .map((job) => ({ ...job, status, stage: pairs.find((pair) => pairKey(pair.provider, pair.market) === pairKey(job.provider, job.market))?.stage || job.stage }));
+}
+
 function materializeJobs({
   providers,
   markets,
@@ -201,7 +252,7 @@ function materializeJobs({
   marketAccess?: Record<string, string>;
   hotel: any;
   bookingDetails: any;
-  stage: "initial" | "expanded";
+  stage: "initial" | "expanded" | "deferred";
 }) {
   const jobs: any[] = [];
   for (const providerId of providers) {
@@ -315,32 +366,62 @@ async function processInvestigation(investigationId) {
     return rec;
   });
 
-  const runnable = record.jobs.filter((j) => j.status === JOB_STATUS.QUEUED);
+  const deadlineAt = Date.parse(record.deadlineAt || "") || Date.parse(record.createdAt) + INVESTIGATION_DEADLINE_MS;
+  const remaining = deadlineAt - Date.now();
+  let deadlineTimer: ReturnType<typeof setTimeout> | null = null;
+  if (remaining <= 0) {
+    await enforceDeadline(investigationId);
+    return;
+  }
+  deadlineTimer = setTimeout(() => {
+    void enforceDeadline(investigationId);
+  }, remaining);
 
-  await Promise.all(
-    runnable.map((job) =>
-      agentQueue.push(() => executeJob(investigationId, job.id)),
-    ),
-  );
+  try {
+    const runnable = record.jobs.filter(
+      (job) => job.status === JOB_STATUS.QUEUED && job.stage !== "deferred",
+    );
+    await Promise.all(
+      runnable.map((job) =>
+        agentQueue.push(() => executeJob(investigationId, job.id)),
+      ),
+    );
+    await finalizeInvestigation(investigationId);
+  } finally {
+    if (deadlineTimer) clearTimeout(deadlineTimer);
+  }
+}
 
+async function enforceDeadline(investigationId) {
+  const controllers = liveAborts.get(investigationId) || new Map();
+  for (const [jobId, controller] of controllers) {
+    const record = await loadInvestigation(investigationId);
+    const job = record?.jobs?.find((item) => item.id === jobId);
+    if (job?.stage === "expanded") continue;
+    controller.abort();
+  }
+  await updateInvestigation(investigationId, (rec) => {
+    const next = applyDeadline(rec.jobs);
+    rec.jobs = next.jobs;
+    rec.summary = summarize(rec.jobs);
+    if (next.changed) {
+      rec.events.push({
+        id: `evt_${randomUUID().slice(0, 8)}`,
+        type: "DEADLINE",
+        message: "Initial comparison stopped at 2 minutes. Prices already found are kept.",
+        jobId: null,
+        at: new Date().toISOString(),
+      });
+    }
+    return rec;
+  });
   await finalizeInvestigation(investigationId);
 }
 
 async function finalizeInvestigation(investigationId) {
   const finalRec = await loadInvestigation(investigationId);
   if (!finalRec) return;
-
-  const stillActive = finalRec.jobs.some((j) =>
-    [
-      JOB_STATUS.QUEUED,
-      JOB_STATUS.STARTING,
-      JOB_STATUS.NAVIGATING,
-      JOB_STATUS.SEARCHING,
-      JOB_STATUS.EXTRACTING,
-      JOB_STATUS.VERIFYING,
-    ].includes(j.status),
-  );
-  if (stillActive) return;
+  if (!shouldFinalize(finalRec.jobs, finalRec.finalizedAt)) return;
 
   const offers = finalRec.jobs.map((j) => j.offer).filter(Boolean);
   const ranking = await rankOffers(
@@ -362,6 +443,7 @@ async function finalizeInvestigation(investigationId) {
   }
 
   await updateInvestigation(investigationId, (rec) => {
+    if (rec.finalizedAt || !shouldFinalize(rec.jobs, null)) return rec;
     rec.offers = ranking.offers;
     rec.ranking = {
       lowestComparableId: ranking.lowestComparable?.id || null,
@@ -373,6 +455,7 @@ async function finalizeInvestigation(investigationId) {
     };
     rec.summary = summarize(rec.jobs);
     rec.status = nextStatus;
+    rec.finalizedAt = rec.finalizedAt || new Date().toISOString();
     rec.events.push({
       id: `evt_${randomUUID().slice(0, 8)}`,
       type: "INVESTIGATION_FINISHED",
@@ -388,6 +471,16 @@ async function executeJob(investigationId, jobId) {
   const current = await loadInvestigation(investigationId);
   const job = current?.jobs?.find((j) => j.id === jobId);
   if (!job || job.status !== JOB_STATUS.QUEUED) return;
+  const deadlineAt = Date.parse(current.deadlineAt || "") || Date.parse(current.createdAt) + INVESTIGATION_DEADLINE_MS;
+  const remaining = job.stage === "expanded" ? JOB_TIMEOUT_MS : deadlineAt - Date.now();
+  if (job.stage !== "expanded" && remaining <= 0) {
+    await patchJob(investigationId, jobId, {
+      status: JOB_STATUS.TIMED_OUT,
+      finishedAt: new Date().toISOString(),
+      error: "Not started. The 2-minute comparison deadline passed.",
+    });
+    return;
+  }
 
   await patchJob(investigationId, jobId, {
     status: JOB_STATUS.STARTING,
@@ -406,13 +499,19 @@ async function executeJob(investigationId, jobId) {
     provider: job.provider,
     market: job.market,
   });
+  const started = (await loadInvestigation(investigationId))?.jobs?.find((item) => item.id === jobId);
+  if (!started || started.status !== JOB_STATUS.STARTING) return;
 
   const abort = new AbortController();
   let timedOut = false;
+  const timers = liveAborts.get(investigationId) || new Map();
+  timers.set(jobId, abort);
+  liveAborts.set(investigationId, timers);
+  // Abort stops this process from waiting. TinyFish may still finish the remote run.
   const timer = setTimeout(() => {
     timedOut = true;
     abort.abort();
-  }, JOB_TIMEOUT_MS);
+  }, Math.max(1, Math.min(JOB_TIMEOUT_MS, remaining)));
 
   try {
     let completePayload: any = null;
@@ -584,6 +683,7 @@ async function executeJob(investigationId, jobId) {
     });
   } finally {
     clearTimeout(timer);
+    liveAborts.get(investigationId)?.delete(jobId);
   }
 }
 
@@ -591,6 +691,7 @@ async function patchJob(investigationId, jobId, patch) {
   return updateInvestigation(investigationId, (rec) => {
     rec.jobs = rec.jobs.map((job) => {
       if (job.id !== jobId) return job;
+      if (patch.status && !canReplaceJobStatus(job.status, patch.status)) return job;
       const next = { ...job };
       for (const [key, value] of Object.entries(patch)) {
         if (value !== undefined) next[key] = value;

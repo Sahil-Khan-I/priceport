@@ -16,6 +16,7 @@ const RUNNING = new Set([
 const WAITING = new Set(["queued", "pending"]);
 
 const STATUS_RANK: Record<string, number> = {
+  deferred: 0,
   queued: 0,
   pending: 0,
   starting: 1,
@@ -119,6 +120,19 @@ export function groupJobsByProvider(jobs: LiveJob[] = []) {
     offers: items.filter((j) => hasOffer(j)).length,
     markets: items.length,
   }));
+}
+
+export function jobProgressLabel(job: LiveJob) {
+  const provider = job.providerName || job.provider || "Provider";
+  if (job.status === "timed_out") return "Timed out";
+  if (job.status === "deferred") return `Later check · ${provider}`;
+  if (job.status === "failed" && !job.offer) return "No matching room";
+  if (job.offer?.totalPrice != null || job.offer?.currency) return "Price found";
+  if (["queued", "starting", "navigating", "searching", "extracting", "verifying"].includes(String(job.status))) {
+    return `Checking ${provider}`;
+  }
+  if (job.status === "completed" && !job.offer) return "No matching room";
+  return job.status || "Waiting";
 }
 
 export function investigationStages(jobs: LiveJob[] = []) {

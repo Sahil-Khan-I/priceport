@@ -13,7 +13,7 @@ import {
   groupJobsByProvider,
   isTerminalInvestigation,
   mergeJobs,
-  investigationStages,
+  jobProgressLabel,
   summarizeProgress,
   type LiveEvent,
   type LiveJob,
@@ -147,7 +147,6 @@ export default function LiveInvestigationRoom({
 
   const jobs = useMemo(() => data?.jobs || [], [data?.jobs]);
   const progress = useMemo(() => summarizeProgress(jobs), [jobs]);
-  const stages = useMemo(() => investigationStages(jobs), [jobs]);
   useEffect(() => {
     const tick = () => setNow(Date.now());
     tick();
@@ -159,7 +158,8 @@ export default function LiveInvestigationRoom({
     if (!now || !Number.isFinite(started)) return null;
     const seconds = Math.max(0, Math.round((now - started) / 1000));
     const minutes = Math.floor(seconds / 60);
-    return minutes ? `${minutes}m ${seconds % 60}s` : `${seconds}s`;
+    const remainder = String(seconds % 60).padStart(2, "0");
+    return `${minutes}:${remainder}`;
   }, [data?.createdAt, now]);
   const groups = useMemo(() => groupJobsByProvider(jobs), [jobs]);
   const findings = useMemo(
@@ -282,7 +282,7 @@ export default function LiveInvestigationRoom({
               {running ? (
                 <span className="ml-2 inline-flex items-center gap-1.5 normal-case tracking-normal text-pp-accent">
                   <span className="h-1.5 w-1.5 rounded-full bg-pp-accent" />
-                  Researching
+                  Checking
                 </span>
               ) : null}
             </p>
@@ -346,45 +346,29 @@ export default function LiveInvestigationRoom({
           <div className="flex flex-wrap items-center justify-between gap-3">
             <div>
               <h2 className="text-lg font-semibold text-pp-text">
-                {progress.researching
-                  ? `${progress.researching} provider${progress.researching === 1 ? "" : "s"} still investigating`
-                  : running
-                    ? "Researching your stay"
-                    : "Research finished"}
+                {running ? "Checking prices" : "Check finished"}
               </h2>
-              <p className="mt-1 max-w-xl text-sm text-pp-muted">
-                {progress.terminal} of {progress.total} checks finished
-                {progress.offers ? ` · ${progress.offers} offers found` : ""}
-                {progress.comparable ? ` · ${progress.comparable} with a matched property` : ""}
+              <p className="mt-1 text-sm text-pp-muted">
+                {elapsedLabel || "0:00"} of 2:00
+                {progress.offers ? ` · ${progress.offers} price${progress.offers === 1 ? "" : "s"} found` : ""}
               </p>
             </div>
             <p className="text-sm text-pp-text">
               {progress.terminal} of {progress.total} checks finished
             </p>
           </div>
-          <div className="mt-4 h-2 overflow-hidden rounded-full bg-slate-100">
-            <div
-              className="h-full rounded-full bg-pp-accent transition-[width] duration-500"
-              style={{ width: `${Math.round(progress.fraction * 100)}%` }}
-            />
-          </div>
-          <p className="mt-3 text-sm text-pp-text">
-            {progress.terminal} of {progress.total} markets checked · {progress.offers} offers found ·{" "}
-            {progress.verified} verified
-            {progress.researching ? ` · ${progress.researching} still checking` : ""}
-            {elapsedLabel ? ` · ${elapsedLabel}` : ""}
-          </p>
-          <ol className="mt-4 grid gap-2 sm:grid-cols-2">
-            {stages.map((stage) => (
-              <li key={stage.id} className="flex items-center gap-2 text-sm text-pp-text">
-                <span
-                  className={`h-2 w-2 rounded-full ${stage.complete ? "bg-emerald-500" : "bg-slate-300"}`}
-                  aria-hidden
-                />
-                {stage.label}
+          <ul className="mt-4 space-y-2">
+            {jobs.map((job) => (
+              <li key={job.id} className="flex items-center justify-between gap-3 text-sm">
+                <span className="text-pp-text">
+                  {job.providerName || job.provider} · {job.market}
+                </span>
+                <span className={job.status === "timed_out" ? "text-amber-700" : "text-pp-muted"}>
+                  {jobProgressLabel(job)}
+                </span>
               </li>
             ))}
-          </ol>
+          </ul>
         </section>
 
         <section className="mt-4 grid grid-cols-2 gap-2 sm:grid-cols-4">
