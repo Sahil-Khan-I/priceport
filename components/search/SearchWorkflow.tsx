@@ -787,6 +787,8 @@ export default function SearchWorkflow() {
                 ) : null}
               </div>
 
+              </div>
+              </div>
               {hotel ? (
                 <div className="pp-enter mt-5 rounded-2xl border border-blue-100 bg-blue-50/50 p-3.5">
                   <div className="flex flex-wrap items-center justify-between gap-3">
@@ -877,7 +879,6 @@ export default function SearchWorkflow() {
                   </div>
                 </div>
               ) : null}
-              </div>
             </div>
           </section>
         ) : null}
