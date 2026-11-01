@@ -685,7 +685,7 @@ export default function SearchWorkflow() {
                     <ul
                       id="hotel-listbox"
                       role="listbox"
-                      className="absolute left-0 right-0 z-40 mt-2 max-h-80 overflow-auto rounded-2xl border border-pp-border bg-white p-1.5 shadow-[0_22px_60px_rgba(23,32,51,0.16)]"
+                      className="pp-enter absolute left-0 right-0 z-40 mt-2 max-h-80 overflow-auto rounded-2xl border border-pp-border bg-white p-1.5 shadow-[0_22px_60px_rgba(23,32,51,0.16)]"
                     >
                       {suggestLoading && hotelSuggestions.length === 0 ? (
                         <li className="flex items-center gap-3 px-4 py-4 text-sm text-pp-muted">
@@ -739,7 +739,7 @@ export default function SearchWorkflow() {
                   ) : null}
                 </div>
               </label>
-              <p className="mt-2 text-xs text-pp-muted">Start typing a hotel name for live suggestions, or browse properties in your destination.</p>
+              <p className="mt-2 text-xs text-pp-muted">Start typing for live property matches. Use ↑ ↓ to move and Enter to select.</p>
 
               {destination && !hotel ? (
                 <div className="mt-3">
@@ -788,7 +788,7 @@ export default function SearchWorkflow() {
               </div>
 
               {hotel ? (
-                <div className="mt-5 rounded-2xl border border-blue-100 bg-blue-50/50 p-3.5">
+                <div className="pp-enter mt-5 rounded-2xl border border-blue-100 bg-blue-50/50 p-3.5">
                   <div className="flex flex-wrap items-center justify-between gap-3">
                     <div className="flex min-w-0 items-center gap-3">
                       <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-white text-sm font-semibold text-pp-accent shadow-sm">✓</span>
