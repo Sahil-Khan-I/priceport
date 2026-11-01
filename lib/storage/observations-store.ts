@@ -1,6 +1,7 @@
 import { promises as fs } from "node:fs";
 import path from "node:path";
 import { randomUUID } from "node:crypto";
+import { atomicWriteFile } from "#atomic-file";
 import {
   detectPriceMovement,
   observationKey,
@@ -26,9 +27,7 @@ export async function saveObservation(observation: PriceObservation) {
   const id = observation.id || `obs_${randomUUID().replace(/-/g, "").slice(0, 12)}`;
   const row = { ...observation, id };
   const target = path.join(OBS_DIR, `${safeId(id)}.json`);
-  const tmp = `${target}.${process.pid}.tmp`;
-  await fs.writeFile(tmp, JSON.stringify(row, null, 2), "utf8");
-  await fs.rename(tmp, target);
+  await atomicWriteFile(target, JSON.stringify(row, null, 2));
   return row;
 }
 
@@ -133,9 +132,7 @@ export type TrackedSearch = {
 export async function saveTrack(track: TrackedSearch) {
   await ensureDirs();
   const target = path.join(TRACKS_DIR, `${safeId(track.id)}.json`);
-  const tmp = `${target}.${process.pid}.tmp`;
-  await fs.writeFile(tmp, JSON.stringify(track, null, 2), "utf8");
-  await fs.rename(tmp, target);
+  await atomicWriteFile(target, JSON.stringify(track, null, 2));
   return track;
 }
 

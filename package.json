@@ -3,6 +3,9 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
+  "imports": {
+    "#atomic-file": "./lib/storage/atomic-file.ts"
+  },
   "scripts": {
     "dev": "next dev --port 3005",
     "build": "next build",

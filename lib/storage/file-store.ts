@@ -1,26 +1,33 @@
 import { promises as fs } from "node:fs";
 import path from "node:path";
+import { atomicWriteFile, withKeyLock } from "#atomic-file";
 
-const ROOT = path.join(process.cwd(), ".data", "investigations");
+const DEFAULT_ROOT = path.join(process.cwd(), ".data", "investigations");
+let rootDir = DEFAULT_ROOT;
+
+export function setInvestigationStoreRoot(dir: string | null) {
+  rootDir = dir || DEFAULT_ROOT;
+}
 
 async function ensureRoot() {
-  await fs.mkdir(ROOT, { recursive: true });
+  await fs.mkdir(rootDir, { recursive: true });
 }
 
 function filePath(id: string) {
   if (!/^[a-zA-Z0-9_-]+$/.test(id)) {
     throw new Error("Invalid investigation id");
   }
-  return path.join(ROOT, `${id}.json`);
+  return path.join(rootDir, `${id}.json`);
+}
+
+async function writeRecord(record: any) {
+  await ensureRoot();
+  await atomicWriteFile(filePath(record.id), JSON.stringify(record, null, 2));
+  return record;
 }
 
 export async function saveInvestigation(record: any) {
-  await ensureRoot();
-  const target = filePath(record.id);
-  const tmp = `${target}.${process.pid}.tmp`;
-  await fs.writeFile(tmp, JSON.stringify(record, null, 2), "utf8");
-  await fs.rename(tmp, target);
-  return record;
+  return withKeyLock(String(record.id), () => writeRecord(record));
 }
 
 export async function loadInvestigation(id: string) {
@@ -44,20 +51,22 @@ export async function updateInvestigation(
   id: string,
   updater: ((current: any) => any | Promise<any>) | Record<string, any>,
 ) {
-  const current = await loadInvestigation(id);
-  if (!current) return null;
-  const next =
-    typeof updater === "function"
-      ? await updater(structuredClone(current))
-      : { ...current, ...updater };
-  next.updatedAt = new Date().toISOString();
-  await saveInvestigation(next);
-  return next;
+  return withKeyLock(id, async () => {
+    const current = await loadInvestigation(id);
+    if (!current) return null;
+    const next =
+      typeof updater === "function"
+        ? await updater(structuredClone(current))
+        : { ...current, ...updater };
+    next.updatedAt = new Date().toISOString();
+    await writeRecord(next);
+    return next;
+  });
 }
 
 export async function listInvestigations() {
   await ensureRoot();
-  const files = await fs.readdir(ROOT);
+  const files = await fs.readdir(rootDir);
   const ids = files
     .filter((f) => f.endsWith(".json"))
     .map((f) => f.replace(/\.json$/, ""));
