@@ -1,3 +1,5 @@
+import { explicitUnavailable } from "#unavailable";
+
 const ACTIVE = new Set([
   "queued",
   "starting",
@@ -40,6 +42,7 @@ export function resolveStreamOutcome(completePayload: any) {
 export function planRetries(jobs: any[] = [], jobIds: string[] | null = null) {
   const additions: any[] = [];
   for (const job of jobs) {
+    if (explicitUnavailable(job) || explicitUnavailable(job.offer)) continue;
     const selected = jobIds ? jobIds.includes(job.id) : true;
     const retryable =
       selected &&

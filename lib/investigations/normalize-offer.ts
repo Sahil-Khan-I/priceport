@@ -13,6 +13,7 @@ import { assessBookingRisk } from "@/lib/pricing/risk";
 import { classifyOffer } from "@/lib/offers/validate";
 import { interpretPrice } from "@/lib/pricing/price-basis";
 import { stayNights } from "@/lib/pricing/savings";
+import { clearUnavailablePrices, explicitUnavailable } from "#unavailable";
 
 export function normalizeJobOffer({
   job,
@@ -101,7 +102,11 @@ export function normalizeJobOffer({
     typeof payload?.refundable === "boolean" ? payload.refundable : null;
 
   const requestedRoom = requestedRoomLabel(bookingDetails?.roomPreferences);
-  const roomMatch = classifyRoomMatch(requestedRoom, roomType).status;
+  const explicitRoomMatch = String(payload?.roomMatch || payload?.room_match || "");
+  const roomMatch =
+    explicitRoomMatch === "unavailable"
+      ? "unavailable"
+      : classifyRoomMatch(requestedRoom, roomType).status;
   const mealPlanStatus = classifyMealPlan(mealPlan);
   const cancellationStatus = classifyCancellation(
     cancellationPolicy,
@@ -141,6 +146,7 @@ export function normalizeJobOffer({
     missingFields.push("sourceUrl");
   }
 
+  const confirmedUnavailable = explicitUnavailable(payload);
   const offerDraft = createEmptyOffer({
     id: `${job.id}_offer`,
     provider: job.providerName || job.provider,
@@ -210,6 +216,15 @@ export function normalizeJobOffer({
     trueCost,
     raw,
   });
+
+  if (confirmedUnavailable) {
+    Object.assign(offerDraft, clearUnavailablePrices({
+      ...offerDraft,
+      roomMatch: explicitRoomMatch === "unavailable" ? "unavailable" : offerDraft.roomMatch,
+      availability: String(payload?.availability || "") === "unavailable" ? "unavailable" : offerDraft.availability,
+      propertyMatch,
+    }));
+  }
 
   const eligibilityAssessment = assessEligibility(offerDraft, { homeCountry });
   offerDraft.eligibilityAssessment = eligibilityAssessment;

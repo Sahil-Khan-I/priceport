@@ -676,6 +676,15 @@ function OfferCard({
         </div>
 
         <div className="mt-4">
+          {offer.availability === "unavailable" || offer.roomMatch === "unavailable" || offer.comparisonClass === "room_unavailable" || offer.propertyMatch === "unmatched" ? (
+            <>
+              <p className="text-3xl font-semibold tracking-tight text-pp-text">Unavailable</p>
+              <p className="mt-2 text-sm text-pp-muted">
+                {offer.priceNote || "The requested room is unavailable on this provider. No alternative room was searched."}
+              </p>
+            </>
+          ) : (
+            <>
           <p className="text-3xl font-semibold tabular-nums tracking-tight text-pp-text">
             {converted
               ? formatMoney(offer.conversion.amount, currency)
@@ -704,6 +713,8 @@ function OfferCard({
               <span className="text-pp-muted">per night · {offer.nights} nights</span>
             </p>
           ) : null}
+            </>
+          )}
         </div>
 
         <dl className="mt-4 grid grid-cols-[88px_1fr] gap-x-3 gap-y-1.5 text-sm">

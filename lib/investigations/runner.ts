@@ -13,6 +13,7 @@ import { normalizeJobOffer } from "./normalize-offer";
 import { rankOffers } from "@/lib/pricing/ranking";
 import { recordOfferObservation } from "@/lib/storage/observations-store";
 import { resolveStreamOutcome } from "./lifecycle";
+import { explicitUnavailable } from "#unavailable";
 import { expandPairs, filterNewPairs, pairKey } from "./job-plan";
 import {
   applyDeadline,
@@ -620,22 +621,25 @@ async function executeJob(investigationId, jobId) {
       homeCountry: request.homeCountry || null,
     });
 
+    const confirmedUnavailable = explicitUnavailable(offer);
     const extractionOk =
-      offer.propertyMatch !== "unmatched" &&
-      (offer.totalPrice != null ||
-        offer.basePrice != null ||
-        offer.availability === "unavailable");
+      confirmedUnavailable ||
+      (offer.propertyMatch !== "unmatched" &&
+        (offer.totalPrice != null ||
+          offer.basePrice != null ||
+          offer.nightlyPrice != null ||
+          offer.displayedUnscoped != null));
 
     await patchJob(investigationId, jobId, {
       status: extractionOk ? JOB_STATUS.COMPLETED : JOB_STATUS.FAILED,
       browserSessionStatus: "finished",
-      extractionStatus: extractionOk
-        ? offer.totalPrice != null || offer.nightlyPrice != null || offer.displayedUnscoped != null
+      extractionStatus: confirmedUnavailable
+        ? "unavailable"
+        : extractionOk
           ? "extracted"
-          : "no_offer"
-        : offer.propertyMatch === "unmatched"
-          ? "no_offer"
-          : "invalid_output",
+          : offer.propertyMatch === "unmatched"
+            ? "no_offer"
+            : "invalid_output",
       finishedAt: new Date().toISOString(),
       tinyfishRunId: offer.tinyfishRunId,
       sourceUrl: offer.sourceUrl || latestJob.url,
@@ -649,9 +653,11 @@ async function executeJob(investigationId, jobId) {
 
     await pushEvent(investigationId, {
       type: "COMPLETE",
-      message: extractionOk
-        ? "Structured findings returned"
-        : "Completed without a verified offer",
+      message: confirmedUnavailable
+        ? "Unavailable"
+        : extractionOk
+          ? "Structured findings returned"
+          : "Completed without a verified offer",
       jobId,
     });
     logTiming(extractionOk ? "offer_extracted" : "job_finished_without_offer", {

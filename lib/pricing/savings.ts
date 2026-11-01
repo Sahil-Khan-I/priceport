@@ -1,3 +1,5 @@
+import { explicitUnavailable } from "#unavailable";
+
 /**
  * Savings engine.
  * Savings are only computed across offers that are genuinely comparable:
@@ -94,6 +96,7 @@ export function calculateSavings(
   const eligible = offers.filter(
     (offer) =>
       offer.comparable === true &&
+      !explicitUnavailable(offer) &&
       offer.conversion?.available === true &&
       typeof offer.conversion.amount === "number" &&
       Number.isFinite(offer.conversion.amount) &&

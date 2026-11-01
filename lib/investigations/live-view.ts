@@ -56,10 +56,13 @@ export type LiveJob = {
     propertyMatch?: string | null;
     conversion?: { available?: boolean; amount?: number | null; currency?: string } | null;
     sourceUrl?: string | null;
+    availability?: string | null;
+    roomMatch?: string | null;
   } | null;
   sourceUrl?: string | null;
   streamingUrl?: string | null;
   tinyfishRunId?: string | null;
+  extractionStatus?: string | null;
 };
 
 export type LiveEvent = {
@@ -124,14 +127,17 @@ export function groupJobsByProvider(jobs: LiveJob[] = []) {
 
 export function jobProgressLabel(job: LiveJob) {
   const provider = job.providerName || job.provider || "Provider";
+  if (job.extractionStatus === "unavailable" || job.offer?.availability === "unavailable" || job.offer?.roomMatch === "unavailable" || job.offer?.propertyMatch === "unmatched") {
+    return "Unavailable";
+  }
   if (job.status === "timed_out") return "Timed out";
+  if (job.status === "unsupported") return "Unsupported";
+  if (job.status === "failed") return "Check failed";
   if (job.status === "deferred") return `Later check · ${provider}`;
-  if (job.status === "failed" && !job.offer) return "No matching room";
   if (job.offer?.totalPrice != null || job.offer?.currency) return "Price found";
   if (["queued", "starting", "navigating", "searching", "extracting", "verifying"].includes(String(job.status))) {
     return `Checking ${provider}`;
   }
-  if (job.status === "completed" && !job.offer) return "No matching room";
   return job.status || "Waiting";
 }
 
@@ -182,6 +188,9 @@ export function describeEvent(event: LiveEvent, jobs: LiveJob[] = []) {
   }
   if (type === "STREAMING_URL") return null;
   if (type === "COMPLETE") {
+    if (job?.extractionStatus === "unavailable" || job?.offer?.availability === "unavailable" || job?.offer?.roomMatch === "unavailable") {
+      return `Unavailable on ${who}.`;
+    }
     if (job && hasOffer(job)) return `Price found on ${who}.`;
     if (job?.status === "failed" || /fail/i.test(event.message || "")) {
       return `${who} could not find a price.`;

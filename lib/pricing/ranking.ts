@@ -1,3 +1,4 @@
+import { explicitUnavailable } from "#unavailable";
 import { calculateTrueCost } from "./true-cost";
 import { convertAmount } from "./currency";
 import { compareRoomConditions } from "@/lib/hotels/matching";
@@ -52,6 +53,7 @@ export async function rankOffers(
         bookingRisk,
         bookable,
         comparable:
+          !explicitUnavailable(offer) &&
           conversion.available &&
           ["exact", "probable"].includes(offer.propertyMatch) &&
           ["exact_match", "comparable"].includes(offer.comparisonClass || "comparable") &&
@@ -63,7 +65,10 @@ export async function rankOffers(
   );
 
   const withConverted = enriched.filter(
-    (o) => o.conversion?.available && o.conversion.amount != null,
+    (o) =>
+      !explicitUnavailable(o) &&
+      o.conversion?.available &&
+      o.conversion.amount != null,
   );
 
   const lowestDisplayed = [...withConverted].sort(
