@@ -241,7 +241,9 @@ export default function ResultsView({
         <ul className="mt-4 grid gap-3 lg:grid-cols-2">
           {data.offers.length === 0 ? (
             <li className="rounded-2xl border border-pp-border bg-white px-4 py-6 text-sm text-pp-muted lg:col-span-2">
-              No usable offers yet. Failed or incomplete checks stay visible in the live research view.
+              {data.status === "failed"
+                ? "No prices were returned within the 2-minute check. Timed-out providers stay listed in the investigation. Retry is manual."
+                : "No usable offers yet. Failed or incomplete checks stay visible in the live research view."}
             </li>
           ) : (
             data.offers.map((offer: any) => (
@@ -676,7 +678,14 @@ function OfferCard({
         </div>
 
         <div className="mt-4">
-          {offer.availability === "unavailable" || offer.roomMatch === "unavailable" || offer.comparisonClass === "room_unavailable" || offer.propertyMatch === "unmatched" ? (
+          {offer.propertyMatch === "unmatched" ? (
+            <>
+              <p className="text-3xl font-semibold tracking-tight text-pp-text">Wrong hotel</p>
+              <p className="mt-2 text-sm text-pp-muted">
+                {offer.priceNote || "This was not the requested hotel. No other property was searched."}
+              </p>
+            </>
+          ) : offer.availability === "unavailable" || offer.roomMatch === "unavailable" || offer.comparisonClass === "room_unavailable" ? (
             <>
               <p className="text-3xl font-semibold tracking-tight text-pp-text">Unavailable</p>
               <p className="mt-2 text-sm text-pp-muted">

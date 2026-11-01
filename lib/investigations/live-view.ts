@@ -127,7 +127,8 @@ export function groupJobsByProvider(jobs: LiveJob[] = []) {
 
 export function jobProgressLabel(job: LiveJob) {
   const provider = job.providerName || job.provider || "Provider";
-  if (job.extractionStatus === "unavailable" || job.offer?.availability === "unavailable" || job.offer?.roomMatch === "unavailable" || job.offer?.propertyMatch === "unmatched") {
+  if (job.offer?.propertyMatch === "unmatched") return "Wrong hotel";
+  if (job.extractionStatus === "unavailable" || job.offer?.availability === "unavailable" || job.offer?.roomMatch === "unavailable") {
     return "Unavailable";
   }
   if (job.status === "timed_out") return "Timed out";

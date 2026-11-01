@@ -1,12 +1,12 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
+import { selectDefaultMarkets } from "../lib/markets/select-markets.ts";
 
 /**
  * Mirror of recommendMarkets / preview rules for Node unit tests without TS path aliases.
  * Production logic lives in lib/markets/recommendations.ts and is exercised via the app.
  */
 
-const PROXY = ["US", "GB", "CA", "DE", "FR", "JP", "AU"];
 const MARKETS = {
   IN: { proxySupported: false, storefrontAvailable: true },
   AE: { proxySupported: false, storefrontAvailable: true },
@@ -14,23 +14,6 @@ const MARKETS = {
   US: { proxySupported: true, storefrontAvailable: true },
   DE: { proxySupported: true, storefrontAvailable: true },
 };
-
-function recommendMarkets({ homeCountry, destinationCountryCode }) {
-  const selected = [];
-  if (homeCountry && PROXY.includes(homeCountry)) selected.push(homeCountry);
-  if (
-    destinationCountryCode &&
-    PROXY.includes(destinationCountryCode) &&
-    !selected.includes(destinationCountryCode)
-  ) {
-    selected.push(destinationCountryCode);
-  }
-  for (const code of ["GB", "US", "DE"]) {
-    if (selected.length >= 2) break;
-    if (PROXY.includes(code) && !selected.includes(code)) selected.push(code);
-  }
-  return { recommended: selected.slice(0, 2), allProxyCodes: PROXY };
-}
 
 function previewInvestigationJobs({ providers, markets, hotel }) {
   let executable = 0;
@@ -49,30 +32,18 @@ function previewInvestigationJobs({ providers, markets, hotel }) {
 }
 
 describe("recommendMarkets", () => {
-  it("keeps the default to two proxy markets", () => {
-    const result = recommendMarkets({
+  it("uses home and destination access instead of filler proxy countries", () => {
+    const result = selectDefaultMarkets({
       homeCountry: "IN",
       destinationCountryCode: "AE",
+      markets: [
+        { code: "IN", proxySupported: false, storefrontAvailable: true },
+        { code: "AE", proxySupported: false, storefrontAvailable: true },
+        { code: "GB", proxySupported: true, storefrontAvailable: true },
+        { code: "US", proxySupported: true, storefrontAvailable: true },
+      ],
     });
-    assert.deepEqual(result.recommended, ["GB", "US"]);
-    assert.equal(result.recommended.length, 2);
-  });
-
-  it("keeps a proxy home country in the default pair", () => {
-    const result = recommendMarkets({
-      homeCountry: "DE",
-      destinationCountryCode: "AE",
-    });
-    assert.ok(result.recommended.includes("DE"));
-    assert.equal(result.recommended.length, 2);
-    assert.ok(!result.recommended.includes("AE"));
-  });
-
-  it("lists documented proxy codes", () => {
-    const result = recommendMarkets({});
-    for (const code of result.allProxyCodes) {
-      assert.ok(PROXY.includes(code));
-    }
+    assert.deepEqual(result.recommended, ["IN", "AE"]);
   });
 });
 

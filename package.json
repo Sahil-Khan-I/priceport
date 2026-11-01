@@ -5,7 +5,8 @@
   "type": "module",
   "imports": {
     "#atomic-file": "./lib/storage/atomic-file.ts",
-    "#unavailable": "./lib/investigations/unavailable.ts"
+    "#unavailable": "./lib/investigations/unavailable.ts",
+    "#tinyfish-request": "./lib/tinyfish/request.ts"
   },
   "scripts": {
     "dev": "next dev --port 3005",

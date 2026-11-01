@@ -4,6 +4,7 @@ import {
   getMarket,
   resolveMarketAccess,
 } from "@/lib/markets/config";
+import { selectDefaultMarkets } from "@/lib/markets/select-markets";
 
 const FLAG_BY_CODE: Record<string, string> = {
   IN: "🇮🇳",
@@ -45,64 +46,16 @@ export function recommendMarkets({
   homeCountry?: string | null;
   destinationCountryCode?: string | null;
 }) {
-  const reasons: string[] = [];
-  const selected: string[] = [];
-
-  const proxyMarkets = INVESTIGATION_MARKETS.filter((m) => m.proxySupported).map(
-    (m) => m.code,
-  );
-
-  // Default is a short proxy comparison (~2 markets × 2–3 providers).
-  // Storefront-only markets stay available to add manually — they are not silent proxy jobs.
-  if (homeCountry && proxyMarkets.includes(homeCountry)) {
-    selected.push(homeCountry);
-    reasons.push(`Includes your home proxy market (${homeCountry})`);
-  }
-
-  if (
-    destinationCountryCode &&
-    proxyMarkets.includes(destinationCountryCode) &&
-    !selected.includes(destinationCountryCode)
-  ) {
-    selected.push(destinationCountryCode);
-    reasons.push(
-      `Includes destination proxy market (${destinationCountryCode})`,
-    );
-  }
-
-  for (const code of ["GB", "US", "DE"]) {
-    if (selected.length >= 2) break;
-    if (proxyMarkets.includes(code) && !selected.includes(code)) {
-      selected.push(code);
-    }
-  }
-
-  if (homeCountry && getMarket(homeCountry) && !proxyMarkets.includes(homeCountry)) {
-    reasons.push(
-      `${homeCountry} is storefront-only — add it in Market Lens if you want that perspective; it is not a local-IP proxy`,
-    );
-  }
-  if (
-    destinationCountryCode &&
-    getMarket(destinationCountryCode) &&
-    !proxyMarkets.includes(destinationCountryCode)
-  ) {
-    reasons.push(
-      `${destinationCountryCode} is storefront-only and left out of the default set`,
-    );
-  }
-
-  reasons.push(
-    "Default stays small so an ordinary search is about 4–6 live investigations. Expand markets if you want more.",
-  );
-
-  const recommended = selected.slice(0, 2);
-
-  return {
-    recommended,
-    allProxyCodes: proxyMarkets,
-    reasons,
-  };
+  return selectDefaultMarkets({
+    homeCountry,
+    destinationCountryCode,
+    markets: INVESTIGATION_MARKETS.map((market) => ({
+      code: market.code,
+      name: market.name,
+      proxySupported: market.proxySupported,
+      storefrontAvailable: market.storefrontAvailable,
+    })),
+  });
 }
 
 export function previewInvestigationJobs({

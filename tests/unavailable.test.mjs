@@ -1,6 +1,7 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
+import { roomSearchInstruction } from "../lib/search/room-preferences.ts";
 import {
   clearUnavailablePrices,
   explicitUnavailable,
@@ -13,10 +14,10 @@ const goal = readFileSync(new URL("../lib/providers/fast-goal.ts", import.meta.u
 
 describe("confirmed unavailability", () => {
   it("stops the provider goal without searching another room", () => {
-    assert.match(goal, /stop immediately/i);
-    assert.match(goal, /roomMatch to unavailable/);
+    assert.match(goal, /Stop immediately/);
     assert.match(goal, /Never treat a missing price, a blocked page, a timeout/);
-    assert.doesNotMatch(goal, /search for another room/i);
+    assert.match(roomSearchInstruction({ category: "deluxe" }), /roomMatch to unavailable/);
+    assert.match(roomSearchInstruction({ category: null }), /Do not search a higher-tier room/);
   });
 
   it("does not treat a timeout or missing data as unavailable", () => {

@@ -1,4 +1,5 @@
 import { OFFER_OUTPUT_SCHEMA } from "@/lib/offers/schema";
+import { pickDirectPropertyUrl } from "@/lib/providers/property-url";
 import { buildFastPriceGoal } from "@/lib/providers/fast-goal";
 
 export const id = "booking";
@@ -20,9 +21,8 @@ export function investigate({ hotel, bookingDetails, marketContext }) {
   params.set("no_rooms", String(rooms || 1));
 
   const startUrl =
-    hotel?.providerUrl && String(hotel.providerUrl).includes("booking.com")
-      ? hotel.providerUrl
-      : `https://www.booking.com/searchresults.html?${params.toString()}`;
+    pickDirectPropertyUrl(hotel, domains, id) ||
+    `https://www.booking.com/searchresults.html?${params.toString()}`;
 
   return {
     provider: id,

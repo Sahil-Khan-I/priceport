@@ -18,11 +18,14 @@ import { expandPairs, filterNewPairs, pairKey } from "./job-plan";
 import {
   applyDeadline,
   canReplaceJobStatus,
+  classifyExecutionFailure,
+  deriveInvestigationStatus,
   planSearchPairs,
   shouldFinalize,
 } from "./deadline";
 import { INVESTIGATION_DEADLINE_MS, JOB_STATUS, JOB_TIMEOUT_MS, mapTinyFishEventToStatus } from "./status";
 import { getMarket } from "@/lib/markets/config";
+import { resolveProviderPropertyUrls } from "@/lib/providers/resolve-property-url";
 
 const running = new Set();
 const liveAborts = new Map();
@@ -38,18 +41,22 @@ export async function createInvestigation(input: any) {
 
   const id = `inv_${randomUUID().replace(/-/g, "").slice(0, 16)}`;
   const plan = planSearchPairs(input.providers || [], input.markets || []);
+  const hotel = await resolveProviderPropertyUrls(
+    input.hotel,
+    plan.initial.map((pair) => pair.provider),
+  );
   const startedAt = new Date();
   const deadlineAt = new Date(startedAt.getTime() + INVESTIGATION_DEADLINE_MS).toISOString();
   const jobs = [
     ...materializePlanned(plan.initial, {
       marketAccess: input.marketAccess,
-      hotel: input.hotel,
+      hotel,
       bookingDetails: input.bookingDetails,
       status: JOB_STATUS.QUEUED,
     }),
     ...materializePlanned(plan.deferred, {
       marketAccess: input.marketAccess,
-      hotel: input.hotel,
+      hotel,
       bookingDetails: input.bookingDetails,
       status: JOB_STATUS.DEFERRED,
     }),
@@ -63,7 +70,7 @@ export async function createInvestigation(input: any) {
     stage: "initial",
     deadlineAt,
     finalizedAt: null,
-    request: input,
+    request: { ...input, hotel },
     timings: {
       requestReceivedAt: input.receivedAt || new Date().toISOString(),
       jobsCreatedAt: new Date().toISOString(),
@@ -197,17 +204,9 @@ export async function expandInvestigation(id: string) {
     .filter((job) => job.status === JOB_STATUS.QUEUED)
     .map((job) => job.id);
 
-  void Promise.all(
+  void Promise.allSettled(
     queuedIds.map((jobId) => agentQueue.push(() => executeJob(id, jobId))),
-  )
-    .then(() => finalizeInvestigation(id))
-    .catch(async (error) => {
-      await pushEvent(id, {
-        type: "INVESTIGATION_FAILED",
-        message: error instanceof Error ? error.message : "Expand failed",
-        jobId: null,
-      });
-    });
+  ).then(() => finalizeInvestigation(id));
 
   return { record: updated, added: created.length };
 }
@@ -282,6 +281,20 @@ function materializeJobs({
         sourceUrl: null,
         offer: null,
         raw: null,
+        timings: {
+          queuedAt: new Date().toISOString(),
+          requestStartedAt: null,
+          startedEventAt: null,
+          streamingUrlAt: null,
+          firstProgressAt: null,
+          propertyIdentifiedAt: null,
+          roomIdentifiedAt: null,
+          priceExtractedAt: null,
+          finishedAt: null,
+          streamEnd: null,
+          errorName: null,
+          errorCode: null,
+        },
       };
 
       if (!access.enabled) {
@@ -342,6 +355,7 @@ export function kick(investigationId) {
   processInvestigation(investigationId)
     .catch(async (error) => {
       await updateInvestigation(investigationId, (rec) => {
+        if (rec.finalizedAt) return rec;
         rec.status = "failed";
         rec.events.push({
           id: `evt_${randomUUID().slice(0, 8)}`,
@@ -363,6 +377,7 @@ async function processInvestigation(investigationId) {
   if (!record) return;
 
   await updateInvestigation(investigationId, (rec) => {
+    if (rec.finalizedAt) return rec;
     rec.status = "running";
     return rec;
   });
@@ -382,7 +397,7 @@ async function processInvestigation(investigationId) {
     const runnable = record.jobs.filter(
       (job) => job.status === JOB_STATUS.QUEUED && job.stage !== "deferred",
     );
-    await Promise.all(
+    await Promise.allSettled(
       runnable.map((job) =>
         agentQueue.push(() => executeJob(investigationId, job.id)),
       ),
@@ -395,11 +410,11 @@ async function processInvestigation(investigationId) {
 
 async function enforceDeadline(investigationId) {
   const controllers = liveAborts.get(investigationId) || new Map();
-  for (const [jobId, controller] of controllers) {
-    const record = await loadInvestigation(investigationId);
-    const job = record?.jobs?.find((item) => item.id === jobId);
-    if (job?.stage === "expanded") continue;
-    controller.abort();
+  for (const [, entry] of controllers) {
+    if (entry.stage === "expanded") continue;
+    entry.reason = "deadline";
+    entry.abort.abort();
+    void entry.stream?.close?.().catch(() => {});
   }
   await updateInvestigation(investigationId, (rec) => {
     const next = applyDeadline(rec.jobs);
@@ -430,7 +445,7 @@ async function finalizeInvestigation(investigationId) {
     finalRec.request.preferredCurrency || "USD",
     { homeCountry: finalRec.request.homeCountry || null },
   );
-  const nextStatus = deriveStatus(finalRec.jobs);
+  const nextStatus = deriveInvestigationStatus(finalRec.jobs);
 
   for (const offer of offers) {
     try {
@@ -488,6 +503,15 @@ async function executeJob(investigationId, jobId) {
     startedAt: new Date().toISOString(),
   });
   const jobStartedAt = Date.now();
+  const timings = {
+    ...(job.timings || {}),
+    requestStartedAt: new Date().toISOString(),
+  };
+  const stamp = async (extra: Record<string, unknown>) => {
+    Object.assign(timings, extra);
+    await patchJob(investigationId, jobId, { timings: { ...timings } });
+  };
+  await stamp({});
   let firstProgressAt = 0;
   await pushEvent(investigationId, {
     type: "JOB_STARTED",
@@ -504,13 +528,18 @@ async function executeJob(investigationId, jobId) {
   if (!started || started.status !== JOB_STATUS.STARTING) return;
 
   const abort = new AbortController();
-  let timedOut = false;
+  const entry: { abort: AbortController; reason: string; stage: string; stream: { close?: () => Promise<void> } | null } = {
+    abort,
+    reason: "",
+    stage: job.stage,
+    stream: null,
+  };
   const timers = liveAborts.get(investigationId) || new Map();
-  timers.set(jobId, abort);
+  timers.set(jobId, entry);
   liveAborts.set(investigationId, timers);
   // Abort stops this process from waiting. TinyFish may still finish the remote run.
   const timer = setTimeout(() => {
-    timedOut = true;
+    entry.reason = "deadline";
     abort.abort();
   }, Math.max(1, Math.min(JOB_TIMEOUT_MS, remaining)));
 
@@ -529,6 +558,8 @@ async function executeJob(investigationId, jobId) {
       },
       {
         onStarted: async (event) => {
+          entry.stream = stream;
+          await stamp({ startedEventAt: new Date().toISOString() });
           await patchJob(investigationId, jobId, {
             status: JOB_STATUS.STARTING,
             tinyfishRunId: event.run_id || null,
@@ -541,6 +572,7 @@ async function executeJob(investigationId, jobId) {
           });
         },
         onStreamingUrl: async (event) => {
+          await stamp({ streamingUrlAt: new Date().toISOString() });
           await patchJob(investigationId, jobId, {
             streamingUrl: event.streaming_url || null,
             browserSessionStatus: "streaming",
@@ -562,6 +594,13 @@ async function executeJob(investigationId, jobId) {
             });
             if (!firstProgressAt) {
               firstProgressAt = Date.now();
+              const purpose = String(event.purpose || "").toLowerCase();
+              await stamp({
+                firstProgressAt: new Date().toISOString(),
+                ...( /hotel|property|identif/.test(purpose) ? { propertyIdentifiedAt: new Date().toISOString() } : {}),
+                ...( /room/.test(purpose) ? { roomIdentifiedAt: new Date().toISOString() } : {}),
+                ...( /price|rate|total|extract/.test(purpose) ? { priceExtractedAt: new Date().toISOString() } : {}),
+              });
               logTiming("first_progress", {
                 investigationId,
                 jobId,
@@ -660,6 +699,11 @@ async function executeJob(investigationId, jobId) {
           : "Completed without a verified offer",
       jobId,
     });
+    await stamp({
+      streamEnd: "normal",
+      finishedAt: new Date().toISOString(),
+      ...(extractionOk ? { priceExtractedAt: timings.priceExtractedAt || new Date().toISOString() } : {}),
+    });
     logTiming(extractionOk ? "offer_extracted" : "job_finished_without_offer", {
       investigationId,
       jobId,
@@ -671,30 +715,40 @@ async function executeJob(investigationId, jobId) {
       comparisonClass: offer.comparisonClass,
     });
   } catch (error) {
+    const failure = classifyExecutionFailure(error, {
+      deadlineAbort: entry.reason === "deadline",
+    });
+    await stamp({
+      streamEnd: failure.status === "timed_out" ? "deadline" : "threw",
+      finishedAt: new Date().toISOString(),
+      errorName: error instanceof Error ? error.name : "Error",
+      errorCode:
+        error && typeof error === "object" && "code" in error
+          ? String((error as { code?: unknown }).code || "")
+          : "",
+    });
     await patchJob(investigationId, jobId, {
-      status: timedOut ? JOB_STATUS.TIMED_OUT : JOB_STATUS.FAILED,
-      browserSessionStatus: timedOut ? "expired" : "finished",
+      status: failure.status === "timed_out" ? JOB_STATUS.TIMED_OUT : JOB_STATUS.FAILED,
+      browserSessionStatus: failure.status === "timed_out" ? "expired" : "finished",
       extractionStatus: "failed",
       finishedAt: new Date().toISOString(),
-      error: timedOut
-        ? "This check timed out before a price was extracted."
-        : error instanceof Error
-          ? error.message
-          : "Agent execution failed",
+      error: failure.message,
     });
     await pushEvent(investigationId, {
-      type: "ERROR",
-      message: error instanceof Error ? error.message : "Agent execution failed",
+      type: failure.eventType,
+      message: failure.message,
       jobId,
     });
   } finally {
     clearTimeout(timer);
+    await entry.stream?.close?.().catch(() => {});
     liveAborts.get(investigationId)?.delete(jobId);
   }
 }
 
 async function patchJob(investigationId, jobId, patch) {
   return updateInvestigation(investigationId, (rec) => {
+    if (rec.finalizedAt) return rec;
     rec.jobs = rec.jobs.map((job) => {
       if (job.id !== jobId) return job;
       if (patch.status && !canReplaceJobStatus(job.status, patch.status)) return job;
@@ -751,27 +805,6 @@ function logTiming(event: string, fields: Record<string, unknown>) {
       ...fields,
     }),
   );
-}
-
-function deriveStatus(jobs) {
-  const active = jobs.some((j) =>
-    [
-      JOB_STATUS.QUEUED,
-      JOB_STATUS.STARTING,
-      JOB_STATUS.NAVIGATING,
-      JOB_STATUS.SEARCHING,
-      JOB_STATUS.EXTRACTING,
-      JOB_STATUS.VERIFYING,
-    ].includes(j.status),
-  );
-  if (active) return "running";
-  const completed = jobs.filter((j) => j.status === JOB_STATUS.COMPLETED).length;
-  const failed = jobs.filter((j) =>
-    [JOB_STATUS.FAILED, JOB_STATUS.TIMED_OUT].includes(j.status),
-  ).length;
-  if (completed > 0 && failed > 0) return "partial";
-  if (completed > 0) return "completed";
-  return "failed";
 }
 
 export async function cancelInvestigation(id) {

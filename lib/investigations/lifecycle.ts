@@ -1,4 +1,5 @@
 import { explicitUnavailable } from "#unavailable";
+import { isConfigurationRejection } from "#tinyfish-request";
 
 const ACTIVE = new Set([
   "queued",
@@ -43,6 +44,7 @@ export function planRetries(jobs: any[] = [], jobIds: string[] | null = null) {
   const additions: any[] = [];
   for (const job of jobs) {
     if (explicitUnavailable(job) || explicitUnavailable(job.offer)) continue;
+    if (isConfigurationRejection(job.error)) continue;
     const selected = jobIds ? jobIds.includes(job.id) : true;
     const retryable =
       selected &&

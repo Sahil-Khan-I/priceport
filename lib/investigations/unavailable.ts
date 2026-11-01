@@ -30,7 +30,7 @@ export function clearUnavailablePrices<T extends Record<string, any>>(offer: T) 
         ? "This was not the requested hotel. No other property was searched."
         : "The requested room is unavailable on this provider. No alternative room was searched.",
     totalStatus: "unknown",
-    comparisonClass: "room_unavailable",
+    comparisonClass: offer.propertyMatch === "unmatched" ? "not_comparable" : "room_unavailable",
     availability: offer.propertyMatch === "unmatched" ? offer.availability : "unavailable",
   };
 }

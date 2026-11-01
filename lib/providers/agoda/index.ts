@@ -1,5 +1,6 @@
 import { OFFER_OUTPUT_SCHEMA } from "@/lib/offers/schema";
 import { buildGoal } from "@/lib/providers/booking";
+import { pickDirectPropertyUrl } from "@/lib/providers/property-url";
 
 export const id = "agoda";
 export const name = "Agoda";
@@ -17,9 +18,8 @@ export function investigate({ hotel, bookingDetails, marketContext }) {
   params.set("rooms", String(rooms || 1));
 
   const startUrl =
-    hotel?.providerUrl && String(hotel.providerUrl).includes("agoda.com")
-      ? hotel.providerUrl
-      : `https://www.agoda.com/search?${params.toString()}`;
+    pickDirectPropertyUrl(hotel, domains, id) ||
+    `https://www.agoda.com/search?${params.toString()}`;
 
   return {
     provider: id,

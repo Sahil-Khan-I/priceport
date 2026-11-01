@@ -10,8 +10,9 @@ export async function GET(_request, context) {
   }
 
   // Resume only if queued jobs remain (avoid re-entering an in-flight run).
-  const hasQueued = record.jobs?.some((job) => job.status === "queued");
-  if (hasQueued) {
+  const hasQueued = record.jobs?.some((job) => job.status === "queued" && job.stage !== "deferred");
+  const deadlineAt = Date.parse(record.deadlineAt || "");
+  if (!record.finalizedAt && hasQueued && (!Number.isFinite(deadlineAt) || Date.now() < deadlineAt)) {
     kick(id);
   }
 
@@ -19,6 +20,8 @@ export async function GET(_request, context) {
     id: record.id,
     status: record.status,
     createdAt: record.createdAt,
+    deadlineAt: record.deadlineAt,
+    finalizedAt: record.finalizedAt,
     updatedAt: record.updatedAt,
     request: record.request,
     summary: record.summary,
@@ -38,6 +41,7 @@ export async function GET(_request, context) {
       error: job.error,
       startedAt: job.startedAt,
       finishedAt: job.finishedAt,
+      extractionStatus: job.extractionStatus,
       offer: job.offer,
     })),
     events: record.events.slice(-100),

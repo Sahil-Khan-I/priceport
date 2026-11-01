@@ -12,7 +12,7 @@ describe("fast extraction goal", () => {
   it("asks only for the hotel, room and price", () => {
     assert.match(goal, /Stop as soon as you have it/);
     assert.match(goal, /Do not read reviews/);
-    assert.match(goal, /Do not substitute a cheaper room/);
+    assert.match(goal, /One room only/);
     assert.doesNotMatch(goal, /cancellation policy/);
     assert.doesNotMatch(goal, /meal plan/);
   });

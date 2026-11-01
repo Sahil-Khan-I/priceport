@@ -2,6 +2,7 @@ import { getTinyFishClient } from "./client";
 import { assertProxyCountry, BROWSER_PROFILES } from "./config";
 import { TinyFishUnsupportedMarketError, toTinyFishError } from "./errors";
 import { normalizeAgentRun } from "./normalize";
+import { buildAgentRequest } from "./request";
 
 type AgentOptions = {
   url: string;
@@ -34,13 +35,13 @@ export async function runInvestigationAgent({
     const client = getTinyFishClient();
 
     const run = await client.agent.run(
-      {
+      buildAgentRequest({
         url,
         goal,
-        ...(outputSchema ? { output_schema: outputSchema as object } : {}),
-        browser_profile: browserProfile as "lite" | "stealth",
-        ...(proxy ? { proxy_config: proxy } : {}),
-      } as any,
+        outputSchema,
+        browserProfile,
+        proxy,
+      }) as any,
       signal ? { signal } : undefined,
     );
 
@@ -76,13 +77,13 @@ export async function streamInvestigationAgent(
   const client = getTinyFishClient();
 
   const stream = await client.agent.stream(
-    {
+    buildAgentRequest({
       url,
       goal,
-      ...(outputSchema ? { output_schema: outputSchema as object } : {}),
-      browser_profile: browserProfile as "lite" | "stealth",
-      ...(proxy ? { proxy_config: proxy } : {}),
-    } as any,
+      outputSchema,
+      browserProfile,
+      proxy,
+    }) as any,
     {
       ...(signal ? { signal } : {}),
       onStarted: handlers.onStarted,
@@ -108,13 +109,15 @@ export async function queueInvestigationAgent(options: AgentOptions) {
   const proxy = buildProxyConfig(proxyCountryCode, requireProxy);
   const client = getTinyFishClient();
 
-  return client.agent.queue({
-    url,
-    goal,
-    ...(outputSchema ? { output_schema: outputSchema as object } : {}),
-    browser_profile: browserProfile as "lite" | "stealth",
-    ...(proxy ? { proxy_config: proxy } : {}),
-  } as any);
+  return client.agent.queue(
+    buildAgentRequest({
+      url,
+      goal,
+      outputSchema,
+      browserProfile,
+      proxy,
+    }) as any,
+  );
 }
 
 function buildProxyConfig(

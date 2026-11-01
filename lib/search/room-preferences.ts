@@ -164,6 +164,31 @@ export function describeRoomPreferences(preferences?: Partial<RoomPreferences> |
   return parts.join(" · ");
 }
 
+export function roomSearchInstruction(preferences?: Partial<RoomPreferences> | null) {
+  const prefs = preferences || {};
+  const category = prefs.category && prefs.category !== "any" ? prefs.category : null;
+  const bed = prefs.bedType && prefs.bedType !== "any" ? BED_LABELS[prefs.bedType] : null;
+  if (category) {
+    const label = ROOM_CATEGORY_LABELS[category] || category;
+    return [
+      `Search only the ${label} category.`,
+      bed ? `Match a ${bed} when that bed is offered in this category.` : "No bed was requested. Do not reject the room for bed type.",
+      "If this room is unavailable, set availability to unavailable and roomMatch to unavailable, then stop.",
+      "Do not search any other room category. Do not substitute a cheaper room.",
+    ].join(" ");
+  }
+  return [
+    "No room category was selected. Search only the hotel's base room.",
+    "Prefer the room labelled Standard, Classic, or the provider's entry-level room.",
+    "Do not inspect or compare other room categories. Do not choose a room because it is the cheapest.",
+    "If the base room cannot be identified, set roomType to null, roomMatch to unknown, and availability to unknown. Do not guess.",
+    "If the base room is unavailable, set availability to unavailable and roomMatch to unavailable, then stop. Do not search a higher-tier room.",
+    bed ? `If the base room offers a ${bed}, prefer that bed. Do not switch category to find it.` : null,
+  ]
+    .filter(Boolean)
+    .join(" ");
+}
+
 export function roomPreferenceGoalLines(preferences?: Partial<RoomPreferences> | null) {
   const prefs = preferences || {};
   return [

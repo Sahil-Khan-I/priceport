@@ -18,12 +18,17 @@ import {
   type LiveEvent,
   type LiveJob,
 } from "@/lib/investigations/live-view";
+import {
+  formatComparisonClock,
+} from "@/lib/investigations/deadline";
 import { describeRoomPreferences } from "@/lib/search/room-preferences";
 
 type InvestigationPayload = {
   id: string;
   status: string;
   createdAt?: string;
+  deadlineAt?: string;
+  finalizedAt?: string | null;
   updatedAt?: string;
   request?: any;
   summary?: any;
@@ -153,14 +158,12 @@ export default function LiveInvestigationRoom({
     const timer = setInterval(tick, 1000);
     return () => clearInterval(timer);
   }, []);
-  const elapsedLabel = useMemo(() => {
-    const started = Date.parse(data?.createdAt || "");
-    if (!now || !Number.isFinite(started)) return null;
-    const seconds = Math.max(0, Math.round((now - started) / 1000));
-    const minutes = Math.floor(seconds / 60);
-    const remainder = String(seconds % 60).padStart(2, "0");
-    return `${minutes}:${remainder}`;
-  }, [data?.createdAt, now]);
+  const elapsedLabel = formatComparisonClock({
+    startedAt: data?.createdAt,
+    now: now || Date.parse(data?.createdAt || "") || 0,
+    deadlineAt: data?.deadlineAt,
+    finalizedAt: data?.finalizedAt,
+  });
   const groups = useMemo(() => groupJobsByProvider(jobs), [jobs]);
   const findings = useMemo(
     () => jobs.filter((job) => job.offer?.totalPrice != null),
@@ -187,7 +190,7 @@ export default function LiveInvestigationRoom({
         String(previewJob.status),
       ),
   );
-  const running = !isTerminalInvestigation(data?.status);
+  const running = !isTerminalInvestigation(data?.status) && !data?.finalizedAt;
   const failedCount = jobs.filter((job) =>
     ["failed", "timed_out"].includes(String(job.status)),
   ).length;
