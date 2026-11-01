@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState, type FormEvent } from "react";
+import { useMemo, useState, type FormEvent, type ReactNode } from "react";
 import { useRouter } from "next/navigation";
 import Container from "@/components/ui/Container";
 import Button from "@/components/ui/Button";
@@ -523,7 +523,7 @@ export default function SearchWorkflow() {
                 <p className="mt-1 text-[11px] leading-4 text-pp-muted">One job per selected booking site and market. More jobs may take longer and use more TinyFish credits.</p>
               </div>
 
-              <Button type="button" block disabled={submitting || Boolean(formError)} onClick={startInvestigation} className="w-full justify-center py-3.5">
+              <Button type="button" disabled={submitting || Boolean(formError)} onClick={startInvestigation} className="w-full justify-center py-3.5">
                 {submitting ? "Starting investigation…" : "Start price investigation"}
                 {!submitting ? <span aria-hidden="true">→</span> : null}
               </Button>
@@ -557,7 +557,7 @@ function SectionHeading({ number, title, subtitle }: { number: string; title: st
   );
 }
 
-function Field({ label, children }: { label: string; children: React.ReactNode }) {
+function Field({ label, children }: { label: string; children: ReactNode }) {
   return <label className="block text-xs font-medium text-pp-text">{label}{children}</label>;
 }
 
