@@ -14,6 +14,7 @@ import {
   COMPARISON_CURRENCIES,
   HOME_COUNTRIES,
   INVESTIGATION_MARKETS,
+  marketRegion,
 } from "@/lib/markets/config";
 import {
   POPULAR_DESTINATIONS,
@@ -1247,14 +1248,23 @@ export default function SearchWorkflow() {
                 </div>
               ) : null}
 
-              <div className="mt-5 space-y-2">
-                {INVESTIGATION_MARKETS.map((market) => {
+              <div className="mt-5 space-y-5">
+                {["Europe", "Americas", "East Asia", "Southeast Asia", "South Asia", "Middle East", "Oceania"].map((region) => {
+                  const regionMarkets = INVESTIGATION_MARKETS.filter(
+                    (market) => marketRegion(market.code) === region,
+                  );
+                  if (!regionMarkets.length) return null;
+                  return (
+                    <div key={region}>
+                      <p className="text-sm font-semibold text-pp-text">{region}</p>
+                      <div className="mt-2 space-y-2">
+                        {regionMarkets.map((market) => {
                   const selected = markets.includes(market.code);
                   const accessLabel = market.proxySupported
-                    ? "Proxy"
+                    ? `Residential proxy · ${market.name}`
                     : market.storefrontAvailable
-                      ? "Storefront"
-                      : "Unsupported";
+                      ? `Storefront · ${market.name}`
+                      : "Market access unavailable";
                   return (
                     <label
                       key={market.code}
@@ -1299,6 +1309,10 @@ export default function SearchWorkflow() {
                         ) : null}
                       </span>
                     </label>
+                        );
+                        })}
+                      </div>
+                    </div>
                   );
                 })}
               </div>

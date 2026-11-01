@@ -155,7 +155,7 @@ describe("derivePriceInsights", () => {
 
 describe("accessLabel", () => {
   it("labels proxy and unsupported honestly", () => {
-    assert.equal(accessLabel(jobs[0]), "Proxy · GB");
+    assert.equal(accessLabel(jobs[0]), "Residential proxy · GB");
     assert.equal(accessLabel(jobs[2]), "Unsupported");
   });
 });

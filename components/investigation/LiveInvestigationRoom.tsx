@@ -13,6 +13,7 @@ import {
   groupJobsByProvider,
   isTerminalInvestigation,
   mergeJobs,
+  investigationStages,
   summarizeProgress,
   type LiveEvent,
   type LiveJob,
@@ -22,6 +23,7 @@ import { describeRoomPreferences } from "@/lib/search/room-preferences";
 type InvestigationPayload = {
   id: string;
   status: string;
+  createdAt?: string;
   updatedAt?: string;
   request?: any;
   summary?: any;
@@ -44,6 +46,7 @@ export default function LiveInvestigationRoom({
   const [showAllEvents, setShowAllEvents] = useState(false);
   const [showDiagnostics, setShowDiagnostics] = useState(false);
   const [expandBusy, setExpandBusy] = useState(false);
+  const [now, setNow] = useState<number | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -144,6 +147,20 @@ export default function LiveInvestigationRoom({
 
   const jobs = useMemo(() => data?.jobs || [], [data?.jobs]);
   const progress = useMemo(() => summarizeProgress(jobs), [jobs]);
+  const stages = useMemo(() => investigationStages(jobs), [jobs]);
+  useEffect(() => {
+    const tick = () => setNow(Date.now());
+    tick();
+    const timer = setInterval(tick, 1000);
+    return () => clearInterval(timer);
+  }, []);
+  const elapsedLabel = useMemo(() => {
+    const started = Date.parse(data?.createdAt || "");
+    if (!now || !Number.isFinite(started)) return null;
+    const seconds = Math.max(0, Math.round((now - started) / 1000));
+    const minutes = Math.floor(seconds / 60);
+    return minutes ? `${minutes}m ${seconds % 60}s` : `${seconds}s`;
+  }, [data?.createdAt, now]);
   const groups = useMemo(() => groupJobsByProvider(jobs), [jobs]);
   const findings = useMemo(
     () => jobs.filter((job) => job.offer?.totalPrice != null),
@@ -351,13 +368,23 @@ export default function LiveInvestigationRoom({
               style={{ width: `${Math.round(progress.fraction * 100)}%` }}
             />
           </div>
-          <p className="mt-3 text-sm text-pp-muted">
-            {progress.completed} completed · {progress.researching} researching ·{" "}
-            {progress.waiting} waiting
-            {progress.attention
-              ? ` · ${progress.attention} need attention`
-              : ""}
+          <p className="mt-3 text-sm text-pp-text">
+            {progress.terminal} of {progress.total} markets checked · {progress.offers} offers found ·{" "}
+            {progress.verified} verified
+            {progress.researching ? ` · ${progress.researching} still checking` : ""}
+            {elapsedLabel ? ` · ${elapsedLabel}` : ""}
           </p>
+          <ol className="mt-4 grid gap-2 sm:grid-cols-2">
+            {stages.map((stage) => (
+              <li key={stage.id} className="flex items-center gap-2 text-sm text-pp-text">
+                <span
+                  className={`h-2 w-2 rounded-full ${stage.complete ? "bg-emerald-500" : "bg-slate-300"}`}
+                  aria-hidden
+                />
+                {stage.label}
+              </li>
+            ))}
+          </ol>
         </section>
 
         <section className="mt-4 grid grid-cols-2 gap-2 sm:grid-cols-4">

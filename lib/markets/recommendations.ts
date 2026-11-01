@@ -15,8 +15,13 @@ const FLAG_BY_CODE: Record<string, string> = {
   JP: "🇯🇵",
   AU: "🇦🇺",
   CA: "🇨🇦",
+  KR: "🇰🇷",
+  HK: "🇭🇰",
+  TW: "🇹🇼",
   SG: "🇸🇬",
   TH: "🇹🇭",
+  MY: "🇲🇾",
+  CN: "🇨🇳",
   ID: "🇮🇩",
 };
 

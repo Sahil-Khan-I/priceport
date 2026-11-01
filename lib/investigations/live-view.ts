@@ -82,6 +82,9 @@ export function summarizeProgress(jobs: LiveJob[] = []) {
   const comparable = jobs.filter((j) =>
     ["exact", "probable"].includes(String(j.offer?.propertyMatch || "")),
   ).length;
+  const verified = jobs.filter((j) =>
+    ["verified", "partially_verified"].includes(String(j.offer?.verificationStatus || "")),
+  ).length;
   const providers = new Set(jobs.map((j) => j.providerName || j.provider)).size;
   const markets = new Set(jobs.map((j) => j.market).filter(Boolean)).size;
 
@@ -96,6 +99,7 @@ export function summarizeProgress(jobs: LiveJob[] = []) {
     comparable,
     providers,
     markets,
+    verified,
     fraction: jobs.length ? terminal / jobs.length : 0,
   };
 }
@@ -117,6 +121,22 @@ export function groupJobsByProvider(jobs: LiveJob[] = []) {
   }));
 }
 
+export function investigationStages(jobs: LiveJob[] = []) {
+  const started = jobs.some((job) => !WAITING.has(String(job.status)));
+  const extracting = jobs.some((job) =>
+    ["extracting", "verifying", "completed"].includes(String(job.status)),
+  );
+  const offers = jobs.some((job) => hasOffer(job));
+  const finished = jobs.length > 0 && jobs.every((job) => TERMINAL.has(String(job.status)));
+  return [
+    { id: "prepare", label: "Preparing hotel and stay details", complete: jobs.length > 0 },
+    { id: "open", label: "Opening provider pages", complete: started },
+    { id: "rooms", label: "Identifying matching room options", complete: extracting || offers },
+    { id: "prices", label: "Extracting price and rate conditions", complete: offers },
+    { id: "compare", label: "Comparing eligible offers", complete: finished },
+  ];
+}
+
 export function accessLabel(job: {
   accessMethod?: string | null;
   actualProxyCountry?: string | null;
@@ -124,10 +144,11 @@ export function accessLabel(job: {
 }) {
   const method = String(job.accessMethod || "").toLowerCase();
   if (method.includes("proxy") || job.actualProxyCountry) {
-    return `Proxy${job.actualProxyCountry ? ` · ${job.actualProxyCountry}` : ""}`;
+    const country = job.actualProxyCountry || "country not confirmed";
+    return `Residential proxy · ${country}`;
   }
   if (method.includes("storefront") || job.storefrontRegion) {
-    return `Storefront${job.storefrontRegion ? ` · ${job.storefrontRegion}` : ""}`;
+    return `Storefront · ${job.storefrontRegion || "region not confirmed"}`;
   }
   if (method.includes("unsupported")) return "Unsupported";
   return job.accessMethod || "Access unknown";

@@ -45,6 +45,11 @@ export async function createInvestigation(input: any) {
     status: "queued",
     stage: "initial",
     request: input,
+    timings: {
+      requestReceivedAt: input.receivedAt || new Date().toISOString(),
+      jobsCreatedAt: new Date().toISOString(),
+      jobCount: jobs.length,
+    },
     jobs,
     events: [
       {
@@ -61,6 +66,12 @@ export async function createInvestigation(input: any) {
   };
 
   await saveInvestigation(record);
+  logTiming("investigation_created", {
+    investigationId: id,
+    jobs: jobs.length,
+    providers: input.providers?.length || 0,
+    markets: input.markets?.length || 0,
+  });
   kick(id);
   return record;
 }
@@ -197,9 +208,11 @@ function materializeJobs({
     const adapter = getProviderAdapter(providerId);
     if (!adapter) continue;
     for (const marketCode of markets) {
+      const market = getMarket(marketCode);
       const preferred =
         marketAccess?.[marketCode] ||
-        (["IN", "AE"].includes(marketCode) ? "storefront" : "proxy");
+        market?.defaultAccessMethod ||
+        "storefront";
       const access = resolveMarketAccess(marketCode, preferred);
       const jobId = `job_${randomUUID().replace(/-/g, "").slice(0, 12)}`;
       const base = {
@@ -380,10 +393,18 @@ async function executeJob(investigationId, jobId) {
     status: JOB_STATUS.STARTING,
     startedAt: new Date().toISOString(),
   });
+  const jobStartedAt = Date.now();
+  let firstProgressAt = 0;
   await pushEvent(investigationId, {
     type: "JOB_STARTED",
     message: `${job.providerName} × ${job.market} starting`,
     jobId,
+  });
+  logTiming("job_started", {
+    investigationId,
+    jobId,
+    provider: job.provider,
+    market: job.market,
   });
 
   const abort = new AbortController();
@@ -439,6 +460,14 @@ async function executeJob(investigationId, jobId) {
               status: next,
               extractionStatus: next === JOB_STATUS.EXTRACTING ? "extracting" : undefined,
             });
+            if (!firstProgressAt) {
+              firstProgressAt = Date.now();
+              logTiming("first_progress", {
+                investigationId,
+                jobId,
+                elapsedMs: firstProgressAt - jobStartedAt,
+              });
+            }
           }
           await pushEvent(investigationId, {
             type: "PROGRESS",
@@ -481,6 +510,7 @@ async function executeJob(investigationId, jobId) {
       return;
     }
 
+    const normalizeStarted = Date.now();
     const offer = normalizeJobOffer({
       job: latestJob,
       hotel: request.hotel,
@@ -524,6 +554,16 @@ async function executeJob(investigationId, jobId) {
         ? "Structured findings returned"
         : "Completed without a verified offer",
       jobId,
+    });
+    logTiming(extractionOk ? "offer_extracted" : "job_finished_without_offer", {
+      investigationId,
+      jobId,
+      provider: latestJob.provider,
+      market: latestJob.market,
+      normalizeMs: Date.now() - normalizeStarted,
+      elapsedMs: Date.now() - jobStartedAt,
+      priceBasis: offer.priceBasis,
+      comparisonClass: offer.comparisonClass,
     });
   } catch (error) {
     await patchJob(investigationId, jobId, {
@@ -593,6 +633,17 @@ function summarize(jobs) {
     unsupported: jobs.filter((j) => j.status === JOB_STATUS.UNSUPPORTED)
       .length,
   };
+}
+
+function logTiming(event: string, fields: Record<string, unknown>) {
+  console.info(
+    JSON.stringify({
+      source: "priceport",
+      event,
+      at: new Date().toISOString(),
+      ...fields,
+    }),
+  );
 }
 
 function deriveStatus(jobs) {

@@ -1,4 +1,5 @@
 import { SUPPORTED_PROXY_COUNTRIES } from "@/lib/tinyfish/config";
+import { classifyAccess } from "@/lib/markets/capability";
 
 /**
  * Market contexts for Priceport investigations.
@@ -92,7 +93,103 @@ export const INVESTIGATION_MARKETS = [
     defaultAccessMethod: "proxy",
     note: "TinyFish proxy AU is documented.",
   },
+  {
+    code: "CA",
+    name: "Canada",
+    currency: "CAD",
+    proxySupported: true,
+    storefrontAvailable: true,
+    defaultAccessMethod: "proxy",
+    note: "TinyFish proxy CA is documented.",
+  },
+  {
+    code: "KR",
+    name: "South Korea",
+    currency: "KRW",
+    region: "East Asia",
+    proxySupported: false,
+    storefrontAvailable: true,
+    defaultAccessMethod: "storefront",
+    note: "No documented residential proxy for KR. This is a regional storefront check, not a Korean IP.",
+  },
+  {
+    code: "HK",
+    name: "Hong Kong",
+    currency: "HKD",
+    region: "East Asia",
+    proxySupported: false,
+    storefrontAvailable: true,
+    defaultAccessMethod: "storefront",
+    note: "No documented residential proxy for HK. This is a regional storefront check, not a Hong Kong IP.",
+  },
+  {
+    code: "TW",
+    name: "Taiwan",
+    currency: "TWD",
+    region: "East Asia",
+    proxySupported: false,
+    storefrontAvailable: true,
+    defaultAccessMethod: "storefront",
+    note: "No documented residential proxy for TW. This is a regional storefront check, not a Taiwan IP.",
+  },
+  {
+    code: "SG",
+    name: "Singapore",
+    currency: "SGD",
+    region: "East Asia",
+    proxySupported: false,
+    storefrontAvailable: true,
+    defaultAccessMethod: "storefront",
+    note: "No documented residential proxy for SG. This is a regional storefront check, not a Singapore IP.",
+  },
+  {
+    code: "TH",
+    name: "Thailand",
+    currency: "THB",
+    region: "Southeast Asia",
+    proxySupported: false,
+    storefrontAvailable: true,
+    defaultAccessMethod: "storefront",
+    note: "No documented residential proxy for TH. This is a regional storefront check, not a Thai IP.",
+  },
+  {
+    code: "MY",
+    name: "Malaysia",
+    currency: "MYR",
+    region: "Southeast Asia",
+    proxySupported: false,
+    storefrontAvailable: true,
+    defaultAccessMethod: "storefront",
+    note: "No documented residential proxy for MY. This is a regional storefront check, not a Malaysian IP.",
+  },
+  {
+    code: "CN",
+    name: "China",
+    currency: "CNY",
+    region: "East Asia",
+    proxySupported: false,
+    storefrontAvailable: false,
+    defaultAccessMethod: "unsupported",
+    note: "No documented residential proxy for CN, and a China storefront check is not verified.",
+  },
 ];
+
+export const MARKET_REGIONS: Record<string, string> = {
+  IN: "South Asia",
+  AE: "Middle East",
+  GB: "Europe",
+  DE: "Europe",
+  FR: "Europe",
+  US: "Americas",
+  CA: "Americas",
+  JP: "East Asia",
+  AU: "Oceania",
+};
+
+export function marketRegion(code: string) {
+  const market = getMarket(code) as { region?: string } | null;
+  return market?.region || MARKET_REGIONS[code] || "Other";
+}
 
 export function getMarket(code) {
   return INVESTIGATION_MARKETS.find((m) => m.code === code) || null;
@@ -116,60 +213,33 @@ export function resolveMarketAccess(
     };
   }
 
-  const method =
+  const requested =
     preferredMethod ||
     (market.proxySupported ? "proxy" : market.storefrontAvailable ? "storefront" : "unsupported");
-
-  if (method === "proxy") {
-    const supported = (SUPPORTED_PROXY_COUNTRIES as readonly string[]).includes(
-      market.code,
-    );
-    if (!supported) {
-      return {
-        selected_market: market.code,
-        actual_proxy_country: null,
-        storefront_region: null,
-        currency: market.currency,
-        access_method: "unsupported",
-        access_verified: false,
-        enabled: false,
-        reason: `Actual proxy access for ${market.name} is not currently supported. A regional storefront investigation may be available separately.`,
-      };
-    }
-    return {
-      selected_market: market.code,
-      actual_proxy_country: market.code,
-      storefront_region: market.code,
-      currency: market.currency,
-      access_method: "proxy",
-      access_verified: false,
-      enabled: true,
-      reason: null,
-    };
-  }
-
-  if (method === "storefront" && market.storefrontAvailable) {
-    return {
-      selected_market: market.code,
-      actual_proxy_country: null,
-      storefront_region: market.code,
-      currency: market.currency,
-      access_method: "storefront",
-      access_verified: false,
-      enabled: true,
-      reason:
-        "Regional storefront investigation — not labelled as a local IP investigation.",
-    };
-  }
+  const access = classifyAccess(
+    {
+      code: market.code,
+      name: market.name,
+      proxySupported: market.proxySupported,
+      storefrontAvailable: market.storefrontAvailable,
+      requested,
+    },
+    SUPPORTED_PROXY_COUNTRIES,
+  );
 
   return {
     selected_market: market.code,
-    actual_proxy_country: null,
-    storefront_region: null,
+    actual_proxy_country: access.actualProxyCountry,
+    storefront_region: access.enabled ? market.code : null,
     currency: market.currency,
-    access_method: "unsupported",
+    access_method: access.accessMethod,
     access_verified: false,
-    enabled: false,
-    reason: market.note,
+    enabled: access.enabled,
+    label: access.label,
+    reason: access.enabled
+      ? access.accessMethod === "storefront"
+        ? "Regional storefront investigation — not labelled as a local IP investigation."
+        : null
+      : market.note,
   };
 }
