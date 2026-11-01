@@ -33,7 +33,7 @@ import {
 } from "@/lib/search/defaults";
 
 const fieldClass =
-  "w-full rounded-xl border border-pp-border bg-pp-white px-3.5 py-3 text-sm text-pp-text outline-none transition placeholder:text-pp-muted/70 focus:border-pp-accent focus:ring-2 focus:ring-pp-accent/15";
+  "w-full rounded-xl border border-pp-border bg-white px-4 py-3.5 text-[15px] text-pp-text outline-none transition duration-150 placeholder:text-pp-muted/65 hover:border-slate-300 focus:border-pp-accent focus:ring-4 focus:ring-pp-accent/10 disabled:cursor-not-allowed disabled:opacity-60";
 
 type HotelCandidate = {
   id: string;
@@ -215,8 +215,8 @@ export default function SearchWorkflow() {
       return () => clearTimeout(t);
     }
 
+    suggestAbort.current?.abort();
     const timer = setTimeout(async () => {
-      suggestAbort.current?.abort();
       const controller = new AbortController();
       suggestAbort.current = controller;
       setSuggestLoading(true);
@@ -258,9 +258,12 @@ export default function SearchWorkflow() {
       } finally {
         setSuggestLoading(false);
       }
-    }, 450);
+    }, 280);
 
-    return () => clearTimeout(timer);
+    return () => {
+      clearTimeout(timer);
+      suggestAbort.current?.abort();
+    };
   }, [hotelQuery, destination, hotel]);
 
   const formError = useMemo(() => {
@@ -487,17 +490,23 @@ export default function SearchWorkflow() {
   return (
     <div ref={rootRef} className="relative min-h-[70vh] bg-pp-bg">
       <div className="pointer-events-none absolute inset-x-0 top-0 h-72 bg-[radial-gradient(ellipse_at_top,_rgba(70,137,255,0.10),_transparent_60%)]" />
-      <Container className="relative py-10 sm:py-14">
-        <div className="mx-auto max-w-3xl">
-          <h1 className="text-3xl font-semibold tracking-tight text-pp-text sm:text-[2.5rem] sm:leading-tight">
-            Where do you want to stay?
-          </h1>
-          <p className="mt-3 max-w-2xl text-base text-pp-muted sm:text-lg">
-            Find your hotel. We&apos;ll compare real prices across providers and markets.
-          </p>
+      <Container className="relative py-9 sm:py-12">
+        <div className="mx-auto max-w-5xl">
+          <p className="text-xs font-semibold uppercase tracking-[0.18em] text-pp-accent">Price intelligence for hotels</p>
+          <div className="mt-3 flex flex-col justify-between gap-3 md:flex-row md:items-end">
+            <div>
+              <h1 className="max-w-3xl text-[2.15rem] font-semibold leading-[1.08] tracking-[-0.045em] text-pp-text sm:text-5xl">
+                The right stay.<br className="hidden sm:block" /> At the right price.
+              </h1>
+              <p className="mt-3 max-w-2xl text-sm leading-6 text-pp-muted sm:text-base">
+                Choose a hotel and we&apos;ll check live offers across booking sites and markets.
+              </p>
+            </div>
+            <p className="pb-1 text-xs text-pp-muted">Real offers · Comparable rooms · Clear total costs</p>
+          </div>
         </div>
 
-        <ol className="mx-auto mt-8 flex max-w-3xl gap-2 text-xs sm:text-sm">
+        <ol className="mx-auto mt-7 flex max-w-5xl flex-wrap items-center gap-2 text-xs sm:text-sm">
           {["Find stay", "Your details", "Compare markets"].map((label, i) => (
             <li
               key={label}
@@ -513,10 +522,12 @@ export default function SearchWorkflow() {
         </ol>
 
         {step === 1 ? (
-          <section className="mx-auto mt-8 max-w-3xl">
-            <div className="overflow-visible rounded-[28px] border border-pp-border bg-pp-white p-5 shadow-pp-soft sm:p-7">
+          <section className="mx-auto mt-5 max-w-5xl">
+            <div className="overflow-visible rounded-[26px] border border-pp-border bg-white p-5 shadow-[0_18px_60px_rgba(23,32,51,0.07)] sm:p-7 lg:p-8">
               {/* Destination */}
-              <label className="block text-sm font-medium text-pp-text">
+              <div className="grid gap-6 lg:grid-cols-[0.9fr_1.1fr]">
+              <div>
+              <label className="block text-xs font-semibold uppercase tracking-[0.12em] text-pp-muted">
                 Destination
                 <div className="relative mt-2">
                   <input
@@ -530,7 +541,7 @@ export default function SearchWorkflow() {
                     onFocus={() => setOpenMenu("destination")}
                     onKeyDown={onDestKeyDown}
                     placeholder="Where are you going?"
-                    className={fieldClass}
+                    className={`${fieldClass} mt-2`}
                     autoComplete="off"
                     aria-controls="destination-listbox"
                   />
@@ -603,9 +614,11 @@ export default function SearchWorkflow() {
                 </p>
               )}
 
+              </div>
+              <div>
               {/* Hotel */}
-              <label className="mt-6 block text-sm font-medium text-pp-text">
-                Hotel
+              <label className="block text-xs font-semibold uppercase tracking-[0.12em] text-pp-muted">
+                Hotel or property
                 <div className="relative mt-2">
                   <input
                     value={hotelQuery}
@@ -632,7 +645,7 @@ export default function SearchWorkflow() {
                         ? `Search hotels in ${destination.city}…`
                         : "Select a destination first"
                     }
-                    className={`${fieldClass} disabled:cursor-not-allowed disabled:opacity-60`}
+                    className={`${fieldClass} mt-2`}
                     autoComplete="off"
                     aria-controls="hotel-listbox"
                   />
@@ -646,7 +659,7 @@ export default function SearchWorkflow() {
                     <ul
                       id="hotel-listbox"
                       role="listbox"
-                      className="absolute left-0 right-0 z-30 mt-2 max-h-72 overflow-auto rounded-2xl border border-pp-border bg-pp-white py-1 shadow-pp-soft"
+                      className="absolute left-0 right-0 z-40 mt-2 max-h-80 overflow-auto rounded-2xl border border-pp-border bg-white p-1.5 shadow-[0_22px_60px_rgba(23,32,51,0.16)]"
                     >
                       {suggestError && hotelSuggestions.length === 0 ? (
                         <li className="px-4 py-3 text-sm text-pp-muted">
@@ -661,26 +674,32 @@ export default function SearchWorkflow() {
                           >
                             <button
                               type="button"
-                              className={`w-full px-4 py-3 text-left ${
+                              className={`flex w-full items-start gap-3 rounded-xl px-3 py-3 text-left transition ${
                                 index === hotelHighlight
-                                  ? "bg-pp-bg-secondary"
-                                  : "hover:bg-pp-bg-secondary"
+                                  ? "bg-blue-50"
+                                  : "hover:bg-slate-50"
                               }`}
                               onMouseEnter={() => setHotelHighlight(index)}
                               onClick={() => selectHotel(candidate)}
                             >
-                              <span className="block text-sm font-medium text-pp-text">
-                                {candidate.name}
+                              <span className="mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-pp-border bg-white text-sm font-semibold text-pp-accent">
+                                {candidate.name.slice(0, 1).toUpperCase()}
                               </span>
-                              <span className="mt-1 block text-xs text-pp-muted">
-                                {[candidate.city || candidate.location, candidate.country]
-                                  .filter(Boolean)
-                                  .join(" · ") || destination?.label}
+                              <span className="min-w-0 flex-1">
+                                <span className="block truncate text-sm font-semibold text-pp-text">
+                                  {candidate.name}
+                                </span>
+                                <span className="mt-1 block truncate text-xs text-pp-muted">
+                                  {[candidate.city || candidate.location, candidate.country]
+                                    .filter(Boolean)
+                                    .join(" · ") || destination?.label}
+                                </span>
+                                <span className="mt-1 block text-[11px] text-pp-muted">
+                                  {sourceLabel(candidate)}
+                                  {candidate.address ? ` · ${candidate.address}` : ""}
+                                </span>
                               </span>
-                              <span className="mt-1 block text-[11px] text-pp-muted">
-                                {sourceLabel(candidate)}
-                                {candidate.address ? ` · ${candidate.address}` : ""}
-                              </span>
+                              <span className="mt-2 shrink-0 text-xs font-medium text-pp-accent">Select →</span>
                             </button>
                           </li>
                         ))
@@ -689,6 +708,7 @@ export default function SearchWorkflow() {
                   ) : null}
                 </div>
               </label>
+              <p className="mt-2 text-xs text-pp-muted">Start typing a hotel name for live suggestions, or browse properties in your destination.</p>
 
               {destination && !hotel ? (
                 <div className="mt-3">
@@ -737,33 +757,30 @@ export default function SearchWorkflow() {
               </div>
 
               {hotel ? (
-                <div className="mt-6 rounded-2xl border border-pp-border bg-pp-bg px-4 py-4">
-                  <div className="flex flex-wrap items-start justify-between gap-3">
-                    <div>
-                      <p className="text-[11px] uppercase tracking-[0.14em] text-pp-muted">
-                        Selected property
-                      </p>
-                      <p className="mt-1 font-semibold text-pp-text">{hotel.name}</p>
-                      <p className="mt-1 text-sm text-pp-muted">
-                        {hotel.location || destination?.label}
-                      </p>
-                      <p className="mt-2 text-xs text-pp-muted">
-                        Discovery candidate — identity verified during investigation
-                      </p>
+                <div className="mt-5 rounded-2xl border border-blue-100 bg-blue-50/50 p-3.5">
+                  <div className="flex flex-wrap items-center justify-between gap-3">
+                    <div className="flex min-w-0 items-center gap-3">
+                      <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-white text-sm font-semibold text-pp-accent shadow-sm">✓</span>
+                      <div className="min-w-0">
+                        <p className="text-[10px] font-semibold uppercase tracking-[0.13em] text-pp-muted">Property selected</p>
+                        <p className="mt-0.5 truncate text-sm font-semibold text-pp-text">{hotel.location || destination?.label}</p>
+                      </div>
                     </div>
                     <button
                       type="button"
-                      className="text-sm text-pp-accent hover:underline"
+                      className="shrink-0 text-xs font-semibold text-pp-accent hover:underline"
                       onClick={() => {
                         setHotel(null);
                         setHotelQuery("");
                         setHotelSuggestions([]);
                       }}
                     >
-                      Change
+                      Change hotel
                     </button>
                   </div>
-                  <div className="mt-5 grid gap-4 sm:grid-cols-2">
+                  <p className="mt-2 pl-12 text-[11px] text-pp-muted">Property identity will be checked against each booking result.</p>
+                </div>
+                <div className="mt-5 grid gap-4 sm:grid-cols-2">
                     <label className="text-sm font-medium text-pp-text">
                       Check-in
                       <input
@@ -783,7 +800,7 @@ export default function SearchWorkflow() {
                       />
                     </label>
                   </div>
-                  <div className="mt-4 grid gap-3 sm:grid-cols-3">
+                  <div className="mt-4 grid gap-2 sm:grid-cols-3">
                     <Stepper label="Adults" value={adults} min={1} onChange={setAdults} />
                     <Stepper
                       label="Children"
@@ -798,23 +815,27 @@ export default function SearchWorkflow() {
                     />
                     <Stepper label="Rooms" value={rooms} min={1} onChange={setRooms} />
                   </div>
-                  <p className="mt-4 text-sm text-pp-muted">
-                    Comparing 2 providers across 2 market perspectives. You can widen
-                    this after the first prices arrive.
-                  </p>
+                  <div className="mt-5 flex flex-wrap items-center justify-between gap-2 border-t border-pp-border pt-4">
+                    <div>
+                      <p className="text-sm font-semibold text-pp-text">Ready for a first comparison</p>
+                      <p className="mt-1 text-xs text-pp-muted">2 booking sites · 2 market perspectives · 4 live checks</p>
+                    </div>
+                    <span className="rounded-full bg-emerald-50 px-3 py-1.5 text-xs font-semibold text-emerald-700">Focused search</span>
+                  </div>
                   {formError ? (
                     <p className="mt-2 text-sm text-pp-coral">{formError}</p>
                   ) : null}
                   {submitError ? (
                     <p className="mt-2 text-sm text-pp-coral">{submitError}</p>
                   ) : null}
-                  <div className="mt-4 flex flex-wrap gap-3">
+                  <div className="mt-4 flex flex-wrap gap-2">
                     <Button
                       type="button"
+                      className="min-w-44 px-6 py-3.5"
                       onClick={startInvestigation}
                       disabled={submitting || Boolean(formError)}
                     >
-                      {submitting ? "Starting…" : "Compare prices"}
+                      {submitting ? "Preparing search…" : "Compare prices"}
                     </Button>
                     <Button type="button" variant="secondary" onClick={() => setStep(3)}>
                       Adjust comparison
@@ -822,6 +843,7 @@ export default function SearchWorkflow() {
                   </div>
                 </div>
               ) : null}
+              </div>
             </div>
           </section>
         ) : null}
