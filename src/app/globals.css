@@ -1,26 +1,152 @@
 @import "tailwindcss";
 
 :root {
-  --background: #ffffff;
-  --foreground: #171717;
+  --pp-bg: #fffdf9;
+  --pp-bg-secondary: #f6f4ef;
+  --pp-text: #172033;
+  --pp-text-secondary: #697386;
+  --pp-accent: #4689ff;
+  --pp-accent-hover: #3476e8;
+  --pp-success: #57d6a0;
+  --pp-highlight: #ffd65a;
+  --pp-coral: #ff5b61;
+  --pp-lavender: #b8a3ff;
+  --pp-dark: #141820;
+  --pp-dark-card: #1e2530;
+  --pp-border: #eae7e0;
+  --pp-white: #ffffff;
+  --background: var(--pp-bg);
+  --foreground: var(--pp-text);
 }
 
 @theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
+  --color-background: var(--pp-bg);
+  --color-foreground: var(--pp-text);
+  --color-pp-bg: var(--pp-bg);
+  --color-pp-bg-secondary: var(--pp-bg-secondary);
+  --color-pp-text: var(--pp-text);
+  --color-pp-muted: var(--pp-text-secondary);
+  --color-pp-accent: var(--pp-accent);
+  --color-pp-accent-hover: var(--pp-accent-hover);
+  --color-pp-success: var(--pp-success);
+  --color-pp-highlight: var(--pp-highlight);
+  --color-pp-coral: var(--pp-coral);
+  --color-pp-lavender: var(--pp-lavender);
+  --color-pp-dark: var(--pp-dark);
+  --color-pp-dark-card: var(--pp-dark-card);
+  --color-pp-border: var(--pp-border);
+  --color-pp-white: var(--pp-white);
   --font-sans: var(--font-geist-sans);
   --font-mono: var(--font-geist-mono);
+  --shadow-pp-soft: 0 18px 50px rgba(23, 32, 51, 0.08);
+  --shadow-pp-lift: 0 10px 30px rgba(70, 137, 255, 0.18);
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
+html {
+  scroll-behavior: smooth;
 }
 
 body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  background: var(--pp-bg);
+  color: var(--pp-text);
+  font-family: var(--font-geist-sans), ui-sans-serif, system-ui, sans-serif;
+  text-rendering: optimizeLegibility;
+}
+
+::selection {
+  background: color-mix(in srgb, var(--pp-accent) 28%, white);
+  color: var(--pp-text);
+}
+
+.pp-grid-wash {
+  background-image:
+    linear-gradient(rgba(23, 32, 51, 0.035) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(23, 32, 51, 0.035) 1px, transparent 1px);
+  background-size: 48px 48px;
+  mask-image: radial-gradient(ellipse 70% 60% at 50% 20%, black 20%, transparent 75%);
+}
+
+.pp-reveal {
+  opacity: 0;
+  transform: translateY(18px);
+  transition:
+    opacity 0.7s cubic-bezier(0.22, 1, 0.36, 1),
+    transform 0.7s cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.pp-reveal.is-visible {
+  opacity: 1;
+  transform: translateY(0);
+}
+
+@keyframes pp-pulse-dot {
+  0%,
+  100% {
+    transform: scale(1);
+    opacity: 1;
+  }
+  50% {
+    transform: scale(1.35);
+    opacity: 0.55;
+  }
+}
+
+@keyframes pp-scan {
+  0% {
+    transform: translateY(-20%);
+    opacity: 0;
+  }
+  20% {
+    opacity: 1;
+  }
+  80% {
+    opacity: 1;
+  }
+  100% {
+    transform: translateY(220%);
+    opacity: 0;
+  }
+}
+
+@keyframes pp-progress {
+  0% {
+    width: 12%;
+  }
+  50% {
+    width: 72%;
+  }
+  100% {
+    width: 92%;
+  }
+}
+
+.pp-pulse-dot {
+  animation: pp-pulse-dot 1.8s ease-in-out infinite;
+}
+
+.pp-scan-line {
+  animation: pp-scan 4.5s ease-in-out infinite;
+}
+
+.pp-progress-bar {
+  animation: pp-progress 5.5s ease-in-out infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  html {
+    scroll-behavior: auto;
+  }
+
+  .pp-reveal,
+  .pp-reveal.is-visible {
+    opacity: 1;
+    transform: none;
+    transition: none;
+  }
+
+  .pp-pulse-dot,
+  .pp-scan-line,
+  .pp-progress-bar {
+    animation: none;
+  }
 }

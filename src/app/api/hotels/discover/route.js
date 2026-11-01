@@ -1,0 +1,23 @@
+import { NextResponse } from "next/server";
+import { validateDiscoverRequest } from "@/lib/validation/schemas";
+import { discoverHotels } from "@/lib/hotels/discover";
+import { toTinyFishError } from "@/lib/tinyfish/errors";
+
+export async function POST(request) {
+  try {
+    const body = await request.json();
+    const parsed = validateDiscoverRequest(body);
+    if (!parsed.ok) {
+      return NextResponse.json({ error: parsed.errors.join("; ") }, { status: 400 });
+    }
+
+    const result = await discoverHotels(parsed.value);
+    return NextResponse.json(result);
+  } catch (error) {
+    const tf = toTinyFishError(error);
+    return NextResponse.json(
+      { error: tf.message, code: tf.code },
+      { status: 500 },
+    );
+  }
+}
