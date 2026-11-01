@@ -12,50 +12,52 @@ export async function rankOffers(
   preferredCurrency = "USD",
   context: { homeCountry?: string | null } = {},
 ) {
-  const enriched: any[] = [];
+  // Currency lookups are independent. Resolve them concurrently so the final
+  // ranking does not wait for one network-backed FX conversion at a time.
+  const enriched: any[] = await Promise.all(
+    offers.map(async (offer) => {
+      const trueCost = calculateTrueCost(offer);
+      const conversion =
+        trueCost.displayedTotal != null && offer.currency
+          ? await convertAmount(
+              trueCost.displayedTotal,
+              offer.currency,
+              preferredCurrency,
+            )
+          : { available: false, reason: "No total to convert" };
 
-  for (const offer of offers) {
-    const trueCost = calculateTrueCost(offer);
-    const conversion =
-      trueCost.displayedTotal != null && offer.currency
-        ? await convertAmount(
-            trueCost.displayedTotal,
-            offer.currency,
-            preferredCurrency,
-          )
-        : { available: false, reason: "No total to convert" };
+      const eligibilityAssessment =
+        offer.eligibilityAssessment ||
+        assessEligibility({ ...offer, trueCost }, context);
 
-    const eligibilityAssessment =
-      offer.eligibilityAssessment ||
-      assessEligibility({ ...offer, trueCost }, context);
+      const withAssessments = {
+        ...offer,
+        trueCost,
+        conversion,
+        eligibilityAssessment,
+      };
+      const bookingRisk =
+        offer.bookingRisk?.warnings?.length
+          ? offer.bookingRisk
+          : assessBookingRisk(withAssessments);
 
-    const withAssessments = {
-      ...offer,
-      trueCost,
-      conversion,
-      eligibilityAssessment,
-    };
-    const bookingRisk =
-      offer.bookingRisk?.warnings?.length
-        ? offer.bookingRisk
-        : assessBookingRisk(withAssessments);
+      const bookable =
+        offer.availability === "available" &&
+        ["exact", "probable"].includes(offer.propertyMatch) &&
+        eligibilityAssessment.status !== "restriction_detected" &&
+        eligibilityAssessment.bookable !== false;
 
-    const bookable =
-      offer.availability === "available" &&
-      ["exact", "probable"].includes(offer.propertyMatch) &&
-      eligibilityAssessment.status !== "restriction_detected" &&
-      eligibilityAssessment.bookable !== false;
-
-    enriched.push({
-      ...withAssessments,
-      bookingRisk,
-      bookable,
-      comparable:
-        trueCost.fullyComparable &&
-        conversion.available &&
-        ["exact", "probable"].includes(offer.propertyMatch),
-    });
-  }
+      return {
+        ...withAssessments,
+        bookingRisk,
+        bookable,
+        comparable:
+          trueCost.fullyComparable &&
+          conversion.available &&
+          ["exact", "probable"].includes(offer.propertyMatch),
+      };
+    }),
+  );
 
   const withConverted = enriched.filter(
     (o) => o.conversion?.available && o.conversion.amount != null,
