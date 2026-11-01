@@ -232,117 +232,88 @@ export default function ResultsView({
           honestly: Proxy = documented local IP; Storefront = regional site only.
           Missing fields stay unknown — never invented.
         </p>
-        <div className="mt-4 overflow-x-auto rounded-[24px] border border-pp-border bg-pp-white">
-          <table className="min-w-[1100px] w-full border-collapse text-left text-sm">
-            <thead className="bg-pp-bg-secondary text-pp-muted">
+        <div className="mt-4 overflow-x-auto rounded-2xl border border-pp-border bg-white">
+          <table className="min-w-[900px] w-full border-collapse text-left text-sm">
+            <thead className="bg-slate-50 text-[11px] font-semibold uppercase tracking-[0.08em] text-pp-muted">
               <tr>
-                {[
-                  "Provider",
-                  "Market",
-                  "Original",
-                  "Converted",
-                  "Total",
-                  "Room",
-                  "Meal",
-                  "Cancel",
-                  "Match",
-                  "Eligibility",
-                  "Verify",
-                  "Risk",
-                  "Source",
-                ].map((h) => (
-                  <th key={h} className="px-3 py-3 font-medium">
-                    {h}
-                  </th>
+                {["Booking site", "Price comparison", "Room & board", "Cancellation", "Total confidence", "Booking checks", "Source"].map((heading) => (
+                  <th key={heading} className="px-4 py-3">{heading}</th>
                 ))}
               </tr>
             </thead>
             <tbody>
               {data.offers.length === 0 ? (
                 <tr>
-                  <td colSpan={13} className="px-4 py-8 text-pp-muted">
-                    No verified offers yet. Investigation failed or still running —
-                    no fabricated prices are shown.
+                  <td colSpan={7} className="px-4 py-10 text-center text-sm text-pp-muted">
+                    No usable offers yet. Incomplete and failed checks remain visible in the investigation room.
                   </td>
                 </tr>
               ) : (
                 data.offers.map((offer: any) => (
                   <tr
                     key={offer.id}
-                    className={`cursor-pointer border-t border-pp-border align-top ${
-                      selectedOfferId === offer.id ? "bg-pp-bg-secondary/60" : ""
-                    }`}
+                    className={`cursor-pointer border-t border-pp-border align-top transition-colors hover:bg-slate-50 ${selectedOfferId === offer.id ? "bg-blue-50/60" : "bg-white"}`}
                     onClick={() => setSelectedOfferId(offer.id)}
+                    aria-selected={selectedOfferId === offer.id}
                   >
-                    <td className="px-3 py-3 font-medium text-pp-text">
-                      {offer.provider}
-                      <div className="text-[11px] text-pp-muted">
-                        {formatAccessLabel(offer)}
+                    <td className="px-4 py-4">
+                      <p className="font-semibold text-pp-text">{offer.provider}</p>
+                      <p className="mt-1 text-xs text-pp-muted">{offer.market} · {formatAccessLabel(offer)}</p>
+                      {offer.availability ? <p className="mt-2 text-[11px] text-pp-muted">Availability: {offer.availability}</p> : null}
+                    </td>
+                    <td className="px-4 py-4">
+                      <p className="text-base font-semibold tabular-nums text-pp-text">
+                        {offer.totalPrice != null ? formatMoney(offer.totalPrice, offer.currency || currency) : "Price unavailable"}
+                      </p>
+                      <p className="mt-1 text-[11px] text-pp-muted">Provider displayed · {offer.currency || "currency unknown"}</p>
+                      <div className="mt-2 border-t border-pp-border pt-2">
+                        <p className="text-sm font-semibold tabular-nums text-pp-accent">
+                          {offer.conversion?.available ? formatMoney(offer.conversion.amount, currency) : "Conversion unavailable"}
+                        </p>
+                        <p className="mt-1 max-w-48 text-[10px] leading-4 text-pp-muted">
+                          {offer.conversion?.available
+                            ? `Converted to ${currency} · ${offer.conversion.source || "FX source"}`
+                            : offer.conversion?.reason || "No conversion evidence"}
+                        </p>
                       </div>
                     </td>
-                    <td className="px-3 py-3 text-pp-muted">{offer.market}</td>
-                    <td className="px-3 py-3 text-pp-text">
-                      {offer.totalPrice != null
-                        ? formatMoney(offer.totalPrice, offer.currency || currency)
-                        : "—"}
-                      <div className="text-[11px] text-pp-muted">
-                        {offer.currency || "currency unknown"}
-                      </div>
+                    <td className="px-4 py-4">
+                      <p className="max-w-44 font-medium text-pp-text">{offer.roomType || "Room not identified"}</p>
+                      <p className="mt-1 text-xs text-pp-muted">{offer.mealPlan || "Meal plan unknown"}</p>
+                      <p className="mt-1 text-[10px] text-pp-muted">Room match: {offer.roomMatch || "unknown"}</p>
                     </td>
-                    <td className="px-3 py-3 text-pp-text">
-                      {offer.conversion?.available
-                        ? formatMoney(offer.conversion.amount, currency)
-                        : "Unavailable"}
-                      <div className="text-[11px] text-pp-muted">
-                        {offer.conversion?.available
-                          ? `${offer.conversion.source}${
-                              offer.conversion.rate != null
-                                ? ` · rate ${offer.conversion.rate}`
-                                : ""
-                            }`
-                          : offer.conversion?.reason || "No FX"}
-                      </div>
+                    <td className="px-4 py-4">
+                      <p className="max-w-40 text-xs leading-5 text-pp-text">{offer.cancellationPolicy || "Not confirmed"}</p>
+                      <p className="mt-1 text-[10px] text-pp-muted">{offer.cancellationStatus || "Policy status unknown"}</p>
                     </td>
-                    <td className="px-3 py-3 text-pp-muted">{offer.totalStatus}</td>
-                    <td className="px-3 py-3 text-pp-muted">
-                      {offer.roomType || "—"}
-                      <div className="text-[11px]">{offer.roomMatch}</div>
+                    <td className="px-4 py-4">
+                      <span className={`inline-flex rounded-full px-2.5 py-1 text-[11px] font-semibold ${offer.trueCost?.fullyComparable ? "bg-emerald-50 text-emerald-700" : "bg-amber-50 text-amber-800"}`}>
+                        {offer.trueCost?.fullyComparable ? "All-in confirmed" : offer.totalStatus || "Incomplete"}
+                      </span>
+                      <p className="mt-2 max-w-40 text-[11px] leading-4 text-pp-muted">
+                        {offer.trueCost?.fullyComparable
+                          ? "Required fee components are present."
+                          : "Some taxes or fees may still be unknown."}
+                      </p>
                     </td>
-                    <td className="px-3 py-3 text-pp-muted">
-                      {offer.mealPlan || "—"}
-                      <div className="text-[11px]">{offer.mealPlanStatus}</div>
+                    <td className="px-4 py-4">
+                      <p className="text-xs font-medium text-pp-text">Property: {offer.propertyMatch || "unknown"}</p>
+                      <p className="mt-1 text-xs text-pp-muted">Eligibility: {offer.eligibilityAssessment?.status || "not checked"}</p>
+                      <p className="mt-1 text-xs text-pp-muted">Verification: {offer.verificationStatus || "unknown"}</p>
+                      <p className="mt-1 text-xs text-pp-muted">Risk: {offer.bookingRisk?.level || "unknown"}</p>
                     </td>
-                    <td className="px-3 py-3 text-pp-muted">
-                      {offer.cancellationPolicy || "—"}
-                      <div className="text-[11px]">{offer.cancellationStatus}</div>
-                    </td>
-                    <td className="px-3 py-3 text-pp-muted">{offer.propertyMatch}</td>
-                    <td className="px-3 py-3 text-pp-muted">
-                      {offer.eligibilityAssessment?.status || "not_checked"}
-                    </td>
-                    <td className="px-3 py-3 text-pp-muted">
-                      {offer.verificationStatus || "unknown"}
-                    </td>
-                    <td className="px-3 py-3 text-pp-muted">
-                      {offer.bookingRisk?.level || "unknown"}
-                    </td>
-                    <td className="px-3 py-3">
+                    <td className="px-4 py-4">
                       {offer.sourceUrl ? (
                         <a
                           href={offer.sourceUrl}
                           target="_blank"
                           rel="noopener noreferrer"
-                          className="text-pp-accent hover:underline"
+                          className="inline-flex items-center rounded-lg border border-pp-border px-3 py-2 text-xs font-semibold text-pp-text transition hover:border-pp-accent hover:text-pp-accent"
                           onClick={(e) => e.stopPropagation()}
                         >
-                          Open
+                          Open offer ↗
                         </a>
-                      ) : (
-                        "—"
-                      )}
-                      <div className="mt-1 font-mono text-[10px] text-pp-muted">
-                        {offer.tinyfishRunId || "no run id"}
-                      </div>
+                      ) : <span className="text-xs text-pp-muted">No source link</span>}
                     </td>
                   </tr>
                 ))
