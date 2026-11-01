@@ -13,6 +13,8 @@ import { normalizeJobOffer } from "./normalize-offer";
 import { rankOffers } from "@/lib/pricing/ranking";
 import { recordOfferObservation } from "@/lib/storage/observations-store";
 import { JOB_STATUS, mapTinyFishEventToStatus } from "./status";
+import { expandPairs, filterNewPairs, pairKey } from "./job-plan";
+import { getMarket } from "@/lib/markets/config";
 
 const running = new Set();
 
@@ -26,107 +28,21 @@ export async function createInvestigation(input: any) {
   }
 
   const id = `inv_${randomUUID().replace(/-/g, "").slice(0, 16)}`;
-  const jobs: any[] = [];
-
-  for (const providerId of input.providers) {
-    const adapter = getProviderAdapter(providerId);
-    if (!adapter) continue;
-
-    for (const marketCode of input.markets) {
-      const preferred =
-        input.marketAccess?.[marketCode] ||
-        (["IN", "AE"].includes(marketCode) ? "storefront" : "proxy");
-      const access = resolveMarketAccess(marketCode, preferred);
-      const jobId = `job_${randomUUID().replace(/-/g, "").slice(0, 12)}`;
-
-      if (!access.enabled) {
-        jobs.push({
-          id: jobId,
-          provider: providerId,
-          providerName: adapter.name,
-          market: marketCode,
-          status: JOB_STATUS.UNSUPPORTED,
-          accessMethod: access.access_method,
-          actualProxyCountry: null,
-          storefrontRegion: access.storefront_region,
-          accessVerified: false,
-          url: null,
-          goal: null,
-          tinyfishRunId: null,
-          streamingUrl: null,
-          sourceUrl: null,
-          error: access.reason,
-          startedAt: null,
-          finishedAt: new Date().toISOString(),
-          offer: null,
-          raw: null,
-        });
-        continue;
-      }
-
-      const plan = adapter.investigate({
-        hotel: input.hotel,
-        bookingDetails: input.bookingDetails,
-        marketContext: access,
-      });
-
-      if (plan.unsupported) {
-        jobs.push({
-          id: jobId,
-          provider: providerId,
-          providerName: adapter.name,
-          market: marketCode,
-          status: JOB_STATUS.UNSUPPORTED,
-          accessMethod: access.access_method,
-          actualProxyCountry: access.actual_proxy_country,
-          storefrontRegion: access.storefront_region,
-          accessVerified: false,
-          url: null,
-          goal: null,
-          tinyfishRunId: null,
-          streamingUrl: null,
-          sourceUrl: null,
-          error: plan.reason,
-          startedAt: null,
-          finishedAt: new Date().toISOString(),
-          offer: null,
-          raw: null,
-        });
-        continue;
-      }
-
-      jobs.push({
-        id: jobId,
-        provider: providerId,
-        providerName: adapter.name,
-        market: marketCode,
-        status: JOB_STATUS.QUEUED,
-        accessMethod: access.access_method,
-        actualProxyCountry: access.actual_proxy_country,
-        storefrontRegion: access.storefront_region,
-        accessVerified: false,
-        url: plan.url,
-        goal: plan.goal,
-        outputSchema: plan.outputSchema,
-        browserProfile: plan.browserProfile || "lite",
-        requireProxy: Boolean(plan.requireProxy),
-        tinyfishRunId: null,
-        streamingUrl: null,
-        sourceUrl: plan.url,
-        error: null,
-        startedAt: null,
-        finishedAt: null,
-        offer: null,
-        raw: null,
-      });
-    }
-  }
+  const jobs = materializeJobs({
+    providers: input.providers,
+    markets: input.markets,
+    marketAccess: input.marketAccess,
+    hotel: input.hotel,
+    bookingDetails: input.bookingDetails,
+    stage: "initial",
+  });
 
   const record = {
     id,
     createdAt: new Date().toISOString(),
     updatedAt: new Date().toISOString(),
     status: "queued",
+    stage: "initial",
     request: input,
     jobs,
     events: [
@@ -146,6 +62,212 @@ export async function createInvestigation(input: any) {
   await saveInvestigation(record);
   kick(id);
   return record;
+}
+
+export async function expandInvestigation(id: string) {
+  const record = await loadInvestigation(id);
+  if (!record) {
+    const err = new Error("Investigation not found") as Error & { status?: number };
+    err.status = 404;
+    throw err;
+  }
+
+  const currentProviders = [
+    ...new Set(record.jobs.map((job) => job.provider).filter(Boolean)),
+  ] as string[];
+  const currentMarkets = [
+    ...new Set(record.jobs.map((job) => job.market).filter(Boolean)),
+  ] as string[];
+  const extraProviders = ["expedia"].filter(
+    (provider) => !currentProviders.includes(provider),
+  );
+  const hotel = record.request?.hotel;
+  if (
+    (hotel?.officialWebsite || hotel?.providerUrl) &&
+    !currentProviders.includes("official")
+  ) {
+    extraProviders.push("official");
+  }
+
+  const extraMarkets: string[] = [];
+  const destinationCode = String(
+    record.request?.destinationCountryCode || "",
+  ).toUpperCase();
+  if (
+    destinationCode &&
+    getMarket(destinationCode) &&
+    !currentMarkets.includes(destinationCode)
+  ) {
+    extraMarkets.push(destinationCode);
+  } else {
+    const nextProxy = ["DE", "FR", "CA", "JP", "AU", "GB", "US"].find(
+      (code) => getMarket(code)?.proxySupported && !currentMarkets.includes(code),
+    );
+    if (nextProxy) extraMarkets.push(nextProxy);
+  }
+
+  const pairs = expandPairs({
+    currentProviders,
+    currentMarkets,
+    extraProviders,
+    extraMarkets,
+  });
+  const freshPairs = filterNewPairs(
+    record.jobs.map((job) => ({ provider: job.provider, market: job.market })),
+    pairs,
+  );
+
+  if (!freshPairs.length) {
+    return { record, added: 0 };
+  }
+
+  const created = materializeJobs({
+    providers: [...new Set(freshPairs.map((pair) => pair.provider))],
+    markets: [...new Set(freshPairs.map((pair) => pair.market))],
+    marketAccess: record.request?.marketAccess,
+    hotel: record.request?.hotel,
+    bookingDetails: record.request?.bookingDetails,
+    stage: "expanded",
+  }).filter((job) =>
+    freshPairs.some((pair) => pairKey(pair.provider, pair.market) === pairKey(job.provider, job.market)),
+  );
+
+  const updated = await updateInvestigation(id, (rec) => {
+    const seen = new Set(rec.jobs.map((job) => pairKey(job.provider, job.market)));
+    for (const job of created) {
+      const key = pairKey(job.provider, job.market);
+      if (seen.has(key)) continue;
+      seen.add(key);
+      rec.jobs.push(job);
+    }
+    rec.stage = "expanded";
+    rec.status = "running";
+    rec.summary = summarize(rec.jobs);
+    rec.events.push({
+      id: `evt_${randomUUID().slice(0, 8)}`,
+      type: "INVESTIGATION_EXPANDED",
+      message: `Added ${created.length} more investigation(s)`,
+      jobId: null,
+      at: new Date().toISOString(),
+    });
+    return rec;
+  });
+
+  const queuedIds = (updated?.jobs || [])
+    .filter(
+      (job) =>
+        job.status === JOB_STATUS.QUEUED &&
+        created.some((next) => next.id === job.id),
+    )
+    .map((job) => job.id);
+
+  void Promise.all(
+    queuedIds.map((jobId) => agentQueue.push(() => executeJob(id, jobId))),
+  )
+    .then(() => finalizeInvestigation(id))
+    .catch(async (error) => {
+      await pushEvent(id, {
+        type: "INVESTIGATION_FAILED",
+        message: error instanceof Error ? error.message : "Expand failed",
+        jobId: null,
+      });
+    });
+
+  return { record: updated, added: created.length };
+}
+
+function materializeJobs({
+  providers,
+  markets,
+  marketAccess,
+  hotel,
+  bookingDetails,
+  stage,
+}: {
+  providers: string[];
+  markets: string[];
+  marketAccess?: Record<string, string>;
+  hotel: any;
+  bookingDetails: any;
+  stage: "initial" | "expanded";
+}) {
+  const jobs: any[] = [];
+  for (const providerId of providers) {
+    const adapter = getProviderAdapter(providerId);
+    if (!adapter) continue;
+    for (const marketCode of markets) {
+      const preferred =
+        marketAccess?.[marketCode] ||
+        (["IN", "AE"].includes(marketCode) ? "storefront" : "proxy");
+      const access = resolveMarketAccess(marketCode, preferred);
+      const jobId = `job_${randomUUID().replace(/-/g, "").slice(0, 12)}`;
+      const base = {
+        id: jobId,
+        provider: providerId,
+        providerName: adapter.name,
+        market: marketCode,
+        stage,
+        accessMethod: access.access_method,
+        actualProxyCountry: access.enabled ? access.actual_proxy_country : null,
+        storefrontRegion: access.storefront_region,
+        accessVerified: false,
+        tinyfishRunId: null,
+        streamingUrl: null,
+        sourceUrl: null,
+        offer: null,
+        raw: null,
+      };
+
+      if (!access.enabled) {
+        jobs.push({
+          ...base,
+          status: JOB_STATUS.UNSUPPORTED,
+          url: null,
+          goal: null,
+          error: access.reason,
+          startedAt: null,
+          finishedAt: new Date().toISOString(),
+        });
+        continue;
+      }
+
+      const plan = adapter.investigate({
+        hotel,
+        bookingDetails,
+        marketContext: access,
+      });
+
+      if (plan.unsupported) {
+        jobs.push({
+          ...base,
+          status: JOB_STATUS.UNSUPPORTED,
+          actualProxyCountry: access.actual_proxy_country,
+          url: null,
+          goal: null,
+          error: plan.reason,
+          startedAt: null,
+          finishedAt: new Date().toISOString(),
+        });
+        continue;
+      }
+
+      jobs.push({
+        ...base,
+        status: JOB_STATUS.QUEUED,
+        actualProxyCountry: access.actual_proxy_country,
+        url: plan.url,
+        goal: plan.goal,
+        outputSchema: plan.outputSchema,
+        browserProfile: plan.browserProfile || "lite",
+        requireProxy: Boolean(plan.requireProxy),
+        sourceUrl: plan.url,
+        error: null,
+        startedAt: null,
+        finishedAt: null,
+      });
+    }
+  }
+  return jobs;
 }
 
 export function kick(investigationId) {
@@ -226,10 +348,6 @@ async function finalizeInvestigation(investigationId) {
   }
 
   await updateInvestigation(investigationId, (rec) => {
-    if (["completed", "failed", "partial"].includes(rec.status)) {
-      // Already finalized by another worker pass.
-      return rec;
-    }
     rec.offers = ranking.offers;
     rec.ranking = {
       lowestComparableId: ranking.lowestComparable?.id || null,

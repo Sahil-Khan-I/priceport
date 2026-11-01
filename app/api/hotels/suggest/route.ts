@@ -16,8 +16,9 @@ export async function GET(request: Request) {
     searchParams.get("countryCode") || "",
   ).trim();
   const limit = Number(searchParams.get("limit") || 6);
+  const browse = searchParams.get("browse") === "1";
 
-  if (query.length < 3) {
+  if (!browse && query.length < 3) {
     return NextResponse.json({
       configured: true,
       results: [],
@@ -28,13 +29,14 @@ export async function GET(request: Request) {
 
   try {
     const result = await discoverHotels({
-      query,
+      query: browse ? query || destinationCity || "hotels" : query,
       destination: destination || null,
       destinationCity: destinationCity || null,
       destinationCountry: destinationCountry || null,
       destinationCountryCode: destinationCountryCode || null,
       // Never use traveler home country here — destination drives location.
       limit: Math.min(Math.max(limit, 1), 8),
+      browse,
     });
     return NextResponse.json(result);
   } catch (error) {

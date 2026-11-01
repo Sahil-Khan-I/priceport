@@ -9,6 +9,10 @@ import {
   rankAndFilterCandidates,
   type DestinationContext,
 } from "@/lib/hotels/discovery-relevance";
+import {
+  discoveryCacheKey,
+  withDiscoveryCache,
+} from "@/lib/hotels/discovery-cache";
 
 /**
  * Discover hotel candidates via TinyFish Search + relevance filtering.
@@ -23,6 +27,7 @@ export async function discoverHotels({
   destinationCountry = null,
   destinationCountryCode = null,
   limit = 6,
+  browse = false,
 }: {
   query?: string;
   location?: string;
@@ -32,6 +37,7 @@ export async function discoverHotels({
   destinationCountry?: string | null;
   destinationCountryCode?: string | null;
   limit?: number;
+  browse?: boolean;
 }) {
   const destCtx: DestinationContext = {
     city: destinationCity || parseCity(destination),
@@ -90,38 +96,55 @@ export async function discoverHotels({
     };
   }
 
-  const searchQuery = buildHotelSearchQuery(q, destCtx);
+  const searchQuery = browse
+    ? `hotels in "${destCtx.city || q}"${destCtx.country ? ` "${destCtx.country}"` : ""} property -directory`
+    : buildHotelSearchQuery(q, destCtx);
   const searchLocation =
     location || mapDestinationToSearchLocation(destCtx, "US");
-
-  const response = await searchProviders({
-    query: searchQuery,
-    location: searchLocation,
+  const cacheKey = discoveryCacheKey({
+    query: browse ? `browse:${destCtx.city || q}` : q,
+    city: destCtx.city,
+    country: destCtx.country,
+    countryCode: destCtx.countryCode,
     language: "en",
-    purpose: destCtx.city
-      ? `Find the specific hotel property matching "${q}" in ${destCtx.city}${destCtx.country ? `, ${destCtx.country}` : ""}`
-      : `Find hotel property pages matching "${q}"`,
+    mode: browse ? "browse" : "named",
   });
 
-  const hits = extractSearchHits(response);
-  const results = rankAndFilterCandidates(hits, {
-    query: q,
-    destination: destCtx,
-    limit: Math.max(1, Math.min(Number(limit) || 6, 8)),
-    minScore: destCtx.city ? 20 : 12,
+  const { value, cached } = await withDiscoveryCache(cacheKey, async () => {
+    const response = await searchProviders({
+      query: searchQuery,
+      location: searchLocation,
+      language: "en",
+      purpose: browse
+        ? `Find real hotel property pages in ${destCtx.city || "the destination"}`
+        : destCtx.city
+          ? `Find the specific hotel property matching "${q}" in ${destCtx.city}${destCtx.country ? `, ${destCtx.country}` : ""}`
+          : `Find hotel property pages matching "${q}"`,
+    });
+
+    const hits = extractSearchHits(response);
+    const results = rankAndFilterCandidates(hits, {
+      query: browse ? destCtx.city || q : q,
+      destination: destCtx,
+      limit: Math.max(1, Math.min(Number(limit) || 6, 8)),
+      minScore: browse ? 18 : destCtx.city ? 20 : 12,
+    });
+
+    return {
+      configured: true as const,
+      source: "tinyfish_search",
+      results,
+      queryUsed: searchQuery,
+      searchLocation,
+      error: null as string | null,
+      rawMeta: {
+        rawHitCount: hits.length,
+        keptCount: results.length,
+      },
+    };
   });
 
-  return {
-    configured: true,
-    source: "tinyfish_search",
-    results,
-    queryUsed: searchQuery,
-    searchLocation,
-    rawMeta: {
-      rawHitCount: hits.length,
-      keptCount: results.length,
-    },
-  };
+  return { ...value, cached };
 }
 
 function parseCity(label: string | null | undefined) {

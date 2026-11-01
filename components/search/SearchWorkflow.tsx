@@ -10,7 +10,6 @@ import {
 import { useRouter } from "next/navigation";
 import Container from "@/components/ui/Container";
 import Button from "@/components/ui/Button";
-import Badge from "@/components/ui/Badge";
 import {
   COMPARISON_CURRENCIES,
   HOME_COUNTRIES,
@@ -97,7 +96,10 @@ export default function SearchWorkflow() {
   const [providers, setProviders] = useState<Array<{ id: string; name: string }>>(
     [],
   );
-  const [selectedProviders, setSelectedProviders] = useState<string[]>([]);
+  const [selectedProviders, setSelectedProviders] = useState<string[]>([
+    "booking",
+    "agoda",
+  ]);
   const [submitting, setSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState("");
 
@@ -156,7 +158,9 @@ export default function SearchWorkflow() {
         const list = Array.isArray(json.providers) ? json.providers : [];
         setProviders(list);
         setSelectedProviders(
-          list.map((p: any) => p.id).filter((id: string) => id !== "official"),
+          ["booking", "agoda"].filter((id) =>
+            list.some((provider: { id: string }) => provider.id === id),
+          ),
         );
       })
       .catch(() => {
@@ -167,7 +171,7 @@ export default function SearchWorkflow() {
             { id: "expedia", name: "Expedia" },
             { id: "official", name: "Official hotel website" },
           ]);
-          setSelectedProviders(["booking", "agoda", "expedia"]);
+          setSelectedProviders(["booking", "agoda"]);
         }
       });
 
@@ -313,6 +317,46 @@ export default function SearchWorkflow() {
     setSuggestError("");
   }
 
+  async function browseDestination() {
+    if (!destination) return;
+    suggestAbort.current?.abort();
+    const controller = new AbortController();
+    suggestAbort.current = controller;
+    setSuggestLoading(true);
+    setSuggestError("");
+    setHotel(null);
+    try {
+      const params = new URLSearchParams({
+        q: "hotels",
+        browse: "1",
+        limit: "6",
+        destination: destination.label,
+        city: destination.city,
+        country: destination.country,
+        countryCode: destination.countryCode,
+      });
+      const response = await fetch(`/api/hotels/suggest?${params}`, {
+        signal: controller.signal,
+      });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error || "Could not browse hotels");
+      const results = data.results || [];
+      setHotelSuggestions(results);
+      setOpenMenu("hotel");
+      setHotelHighlight(0);
+      if (!results.length) {
+        setSuggestError(
+          `No reliable property pages found for ${destination.city}. Try a hotel name.`,
+        );
+      }
+    } catch (error: any) {
+      if (error?.name === "AbortError") return;
+      setSuggestError(error instanceof Error ? error.message : "Browse failed");
+    } finally {
+      setSuggestLoading(false);
+    }
+  }
+
   async function resolveDirectUrl() {
     if (!directUrl.trim()) return;
     setUrlBusy(true);
@@ -445,13 +489,11 @@ export default function SearchWorkflow() {
       <div className="pointer-events-none absolute inset-x-0 top-0 h-72 bg-[radial-gradient(ellipse_at_top,_rgba(70,137,255,0.10),_transparent_60%)]" />
       <Container className="relative py-10 sm:py-14">
         <div className="mx-auto max-w-3xl">
-          <Badge tone="accent">Hotel Market Lens</Badge>
-          <h1 className="mt-4 text-3xl font-semibold tracking-tight text-pp-text sm:text-[2.5rem] sm:leading-tight">
-            Find the real price of your next stay.
+          <h1 className="text-3xl font-semibold tracking-tight text-pp-text sm:text-[2.5rem] sm:leading-tight">
+            Where do you want to stay?
           </h1>
           <p className="mt-3 max-w-2xl text-base text-pp-muted sm:text-lg">
-            Compare hotels across markets, uncover regional price differences,
-            and understand what you&apos;ll actually pay.
+            Find your hotel. We&apos;ll compare real prices across providers and markets.
           </p>
         </div>
 
@@ -648,6 +690,23 @@ export default function SearchWorkflow() {
                 </div>
               </label>
 
+              {destination && !hotel ? (
+                <div className="mt-3">
+                  <button
+                    type="button"
+                    className="text-sm text-pp-accent hover:underline"
+                    onClick={() => browseDestination()}
+                  >
+                    {suggestLoading && openMenu === "hotel"
+                      ? "Looking up properties…"
+                      : `Browse hotels in ${destination.city}`}
+                  </button>
+                  <p className="mt-1 text-xs text-pp-muted">
+                    Uses live search. Nothing is shown unless a real property page is found.
+                  </p>
+                </div>
+              ) : null}
+
               <div className="mt-4">
                 <button
                   type="button"
@@ -704,9 +763,61 @@ export default function SearchWorkflow() {
                       Change
                     </button>
                   </div>
-                  <div className="mt-4">
-                    <Button type="button" onClick={() => setStep(2)}>
-                      Continue
+                  <div className="mt-5 grid gap-4 sm:grid-cols-2">
+                    <label className="text-sm font-medium text-pp-text">
+                      Check-in
+                      <input
+                        type="date"
+                        value={checkIn}
+                        onChange={(e) => setCheckIn(e.target.value)}
+                        className={`mt-2 ${fieldClass}`}
+                      />
+                    </label>
+                    <label className="text-sm font-medium text-pp-text">
+                      Check-out
+                      <input
+                        type="date"
+                        value={checkOut}
+                        onChange={(e) => setCheckOut(e.target.value)}
+                        className={`mt-2 ${fieldClass}`}
+                      />
+                    </label>
+                  </div>
+                  <div className="mt-4 grid gap-3 sm:grid-cols-3">
+                    <Stepper label="Adults" value={adults} min={1} onChange={setAdults} />
+                    <Stepper
+                      label="Children"
+                      value={children}
+                      min={0}
+                      onChange={(next) => {
+                        setChildren(next);
+                        setChildrenAges((ages) =>
+                          Array.from({ length: next }, (_, i) => ages[i] ?? 8),
+                        );
+                      }}
+                    />
+                    <Stepper label="Rooms" value={rooms} min={1} onChange={setRooms} />
+                  </div>
+                  <p className="mt-4 text-sm text-pp-muted">
+                    Comparing 2 providers across 2 market perspectives. You can widen
+                    this after the first prices arrive.
+                  </p>
+                  {formError ? (
+                    <p className="mt-2 text-sm text-pp-coral">{formError}</p>
+                  ) : null}
+                  {submitError ? (
+                    <p className="mt-2 text-sm text-pp-coral">{submitError}</p>
+                  ) : null}
+                  <div className="mt-4 flex flex-wrap gap-3">
+                    <Button
+                      type="button"
+                      onClick={startInvestigation}
+                      disabled={submitting || Boolean(formError)}
+                    >
+                      {submitting ? "Starting…" : "Compare prices"}
+                    </Button>
+                    <Button type="button" variant="secondary" onClick={() => setStep(3)}>
+                      Adjust comparison
                     </Button>
                   </div>
                 </div>

@@ -6,6 +6,7 @@ import Container from "@/components/ui/Container";
 import Button from "@/components/ui/Button";
 import {
   accessLabel,
+  collapseActivity,
   dedupeEvents,
   derivePriceInsights,
   describeEvent,
@@ -40,6 +41,7 @@ export default function LiveInvestigationRoom({
   const [watchLive, setWatchLive] = useState(false);
   const [showAllEvents, setShowAllEvents] = useState(false);
   const [showDiagnostics, setShowDiagnostics] = useState(false);
+  const [expandBusy, setExpandBusy] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -154,11 +156,12 @@ export default function LiveInvestigationRoom({
         text: describeEvent(event, jobs),
       }))
       .filter((row) => row.text);
-    return lines.reverse();
+    return collapseActivity(lines).reverse();
   }, [events, jobs]);
   const previewUrl = jobs.find((job) => job.streamingUrl)?.streamingUrl || null;
   const running = !isTerminalInvestigation(data?.status);
   const failedCount = jobs.filter((job) => job.status === "failed").length;
+  const expanded = jobs.some((job) => (job as { stage?: string }).stage === "expanded");
   const stay = data?.request?.bookingDetails;
   const providers = [
     ...new Set(jobs.map((job) => job.providerName || job.provider).filter(Boolean)),
@@ -181,6 +184,22 @@ export default function LiveInvestigationRoom({
       setError(err instanceof Error ? err.message : "Cancel failed");
     } finally {
       setActionBusy("");
+    }
+  }
+
+  async function expandComparison() {
+    setExpandBusy(true);
+    try {
+      const response = await fetch(
+        `/api/investigations/${investigationId}/expand`,
+        { method: "POST" },
+      );
+      const json = await response.json();
+      if (!response.ok) throw new Error(json.error || "Could not expand");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Could not expand");
+    } finally {
+      setExpandBusy(false);
     }
   }
 
@@ -267,6 +286,13 @@ export default function LiveInvestigationRoom({
                 {actionBusy === "cancel" ? "Cancelling…" : "Cancel"}
               </Button>
             ) : null}
+            <Button
+              variant="secondary"
+              onClick={expandComparison}
+              disabled={expandBusy || expanded}
+            >
+              {expanded ? "Comparison expanded" : expandBusy ? "Expanding…" : "Expand comparison"}
+            </Button>
             {failedCount > 0 ? (
               <Button
                 variant="secondary"
@@ -342,14 +368,24 @@ export default function LiveInvestigationRoom({
           ) : null}
           {findings.length === 0 ? (
             <div className="mt-4 rounded-2xl border border-dashed border-pp-border bg-pp-white px-5 py-8">
-              <p className="text-sm text-pp-text">
-                No offers yet. Priceport is still checking{" "}
-                {providers.join(", ") || "the selected providers"}.
+              <p className="text-sm font-medium text-pp-text">Checking live prices</p>
+              <p className="mt-1 text-sm text-pp-muted">
+                Your first offers will appear here as providers respond.
               </p>
-              <p className="mt-2 text-sm text-pp-muted">
-                Prices appear here as soon as a provider returns one. Nothing is
-                filled in early.
-              </p>
+              <ul className="mt-3 space-y-1 text-sm text-pp-muted">
+                {jobs
+                  .filter((job) =>
+                    ["queued", "starting", "running", "navigating", "searching", "extracting"].includes(
+                      String(job.status),
+                    ),
+                  )
+                  .slice(0, 4)
+                  .map((job) => (
+                    <li key={job.id}>
+                      {job.providerName} · {job.market}
+                    </li>
+                  ))}
+              </ul>
             </div>
           ) : (
             <ul className="mt-4 space-y-3">
@@ -375,8 +411,8 @@ export default function LiveInvestigationRoom({
                         {job.offer?.currency} {job.offer?.totalPrice}
                       </p>
                       <p className="mt-1 text-xs text-pp-muted">
-                        {job.offer?.totalStatus || "Total status unknown"} ·{" "}
-                        {job.offer?.verificationStatus || "Not verified yet"}
+                        {job.offer?.totalStatus || "Displayed price — total not fully confirmed"} ·{" "}
+                        {job.offer?.verificationStatus || "Provisional until comparison finishes"}
                       </p>
                       {job.sourceUrl ? (
                         <a

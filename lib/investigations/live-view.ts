@@ -141,11 +141,45 @@ export function describeEvent(event: LiveEvent, jobs: LiveJob[] = []) {
     return `${who} finished this market check.`;
   }
   if (type === "PROGRESS") {
-    const text = String(event.message || "").trim();
-    if (!text || text === "PROGRESS" || text === "Heartbeat") return null;
-    return text;
+    return milestoneLabel(String(event.message || ""), who);
+  }
+  if (type === "INVESTIGATION_EXPANDED") {
+    return "Priceport started a wider comparison.";
   }
   if (event.message) return event.message;
+  return null;
+}
+
+export function collapseActivity(
+  lines: Array<{ id: string; text: string | null }>,
+) {
+  const out: Array<{ id: string; text: string }> = [];
+  for (const line of lines) {
+    if (!line.text) continue;
+    if (out[out.length - 1]?.text === line.text) continue;
+    out.push({ id: line.id, text: line.text });
+  }
+  return out;
+}
+
+function milestoneLabel(purpose: string, who: string) {
+  const text = purpose.trim().toLowerCase();
+  if (!text || text === "progress" || text === "heartbeat") return null;
+  if (/price|fee|tax|total|rate|extract/.test(text)) {
+    return `${who} is extracting pricing.`;
+  }
+  if (/cancel|policy|meal|board|condition|eligib/.test(text)) {
+    return `${who} is checking booking conditions.`;
+  }
+  if (/room|availab|occupan|date/.test(text)) {
+    return `${who} is checking room availability.`;
+  }
+  if (/search|type|hotel name|query|property/.test(text)) {
+    return `${who} is searching for the property.`;
+  }
+  if (/open|navigat|page|click|cookie|consent|tab|scroll/.test(text)) {
+    return `${who} is opening the provider.`;
+  }
   return null;
 }
 
