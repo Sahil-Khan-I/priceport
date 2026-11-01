@@ -39,6 +39,7 @@ export default function LiveInvestigationRoom({
   const [actionBusy, setActionBusy] = useState("");
   const [openProvider, setOpenProvider] = useState<string | null>(null);
   const [watchLive, setWatchLive] = useState(false);
+  const [selectedPreviewJobId, setSelectedPreviewJobId] = useState<string | null>(null);
   const [showAllEvents, setShowAllEvents] = useState(false);
   const [showDiagnostics, setShowDiagnostics] = useState(false);
   const [expandBusy, setExpandBusy] = useState(false);
@@ -158,7 +159,10 @@ export default function LiveInvestigationRoom({
       .filter((row) => row.text);
     return collapseActivity(lines).reverse();
   }, [events, jobs]);
-  const previewUrl = jobs.find((job) => job.streamingUrl)?.streamingUrl || null;
+  const previewJobs = jobs.filter((job) => Boolean(job.streamingUrl));
+  const previewJob =
+    previewJobs.find((job) => job.id === selectedPreviewJobId) || previewJobs[0] || null;
+  const previewUrl = previewJob?.streamingUrl || null;
   const running = !isTerminalInvestigation(data?.status);
   const failedCount = jobs.filter((job) => job.status === "failed").length;
   const expanded = jobs.some((job) => (job as { stage?: string }).stage === "expanded");
@@ -244,7 +248,7 @@ export default function LiveInvestigationRoom({
 
   return (
     <div className="bg-pp-bg">
-      <Container className="py-8 sm:py-12">
+      <Container className="py-7 sm:py-10">
         <header className="flex flex-col gap-6 border-b border-pp-border pb-6 sm:flex-row sm:items-end sm:justify-between">
           <div>
             <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-pp-muted">
@@ -256,7 +260,7 @@ export default function LiveInvestigationRoom({
                 </span>
               ) : null}
             </p>
-            <h1 className="mt-2 text-3xl font-semibold tracking-tight text-pp-text">
+            <h1 className="mt-2 max-w-3xl text-3xl font-semibold tracking-tight text-pp-text sm:text-[2.6rem]">
               {data.request?.hotel?.name || "Hotel investigation"}
             </h1>
             <p className="mt-2 text-sm text-pp-muted">
@@ -311,8 +315,8 @@ export default function LiveInvestigationRoom({
           </div>
         </header>
 
-        <section className="mt-8">
-          <div className="flex flex-wrap items-end justify-between gap-3">
+        <section className="mt-7 rounded-2xl border border-pp-border bg-white p-4 sm:p-5">
+          <div className="flex flex-wrap items-center justify-between gap-3">
             <div>
               <h2 className="text-lg font-semibold text-pp-text">
                 {running ? "Researching your stay" : "Research finished"}
@@ -326,9 +330,9 @@ export default function LiveInvestigationRoom({
               {progress.terminal} of {progress.total} investigations finished
             </p>
           </div>
-          <div className="mt-4 h-1.5 overflow-hidden rounded-full bg-pp-bg-secondary">
+          <div className="mt-4 h-2 overflow-hidden rounded-full bg-slate-100">
             <div
-              className="h-full bg-pp-accent transition-[width] duration-500"
+              className="h-full rounded-full bg-pp-accent transition-[width] duration-500"
               style={{ width: `${Math.round(progress.fraction * 100)}%` }}
             />
           </div>
@@ -341,15 +345,21 @@ export default function LiveInvestigationRoom({
           </p>
         </section>
 
-        <section className="mt-6 grid grid-cols-2 gap-3 sm:grid-cols-4">
+        <section className="mt-4 grid grid-cols-2 gap-2 sm:grid-cols-4">
           <Metric label="Providers" value={progress.providers} />
           <Metric label="Markets" value={progress.markets} />
           <Metric label="Offers found" value={progress.offers} />
           <Metric label="Need attention" value={progress.attention} />
         </section>
 
-        <section className="mt-10">
-          <h2 className="text-xl font-semibold text-pp-text">Price findings</h2>
+        <section className="mt-8">
+          <div className="flex flex-wrap items-end justify-between gap-2">
+            <div>
+              <p className="text-xs font-semibold uppercase tracking-[0.14em] text-pp-accent">Live price feed</p>
+              <h2 className="mt-1 text-xl font-semibold tracking-tight text-pp-text">Price findings</h2>
+            </div>
+            <p className="text-xs text-pp-muted">Offers appear as providers respond</p>
+          </div>
           <p className="mt-1 text-sm text-pp-muted">
             Offers discovered so far. Final comparisons appear as evidence is
             verified.
@@ -490,30 +500,61 @@ export default function LiveInvestigationRoom({
         </section>
 
         {previewUrl ? (
-          <section className="mt-8">
-            {!watchLive ? (
-              <Button variant="secondary" onClick={() => setWatchLive(true)}>
-                Watch live browser
-              </Button>
-            ) : (
-              <div className="rounded-2xl border border-pp-border bg-pp-white p-4">
-                <div className="flex items-center justify-between gap-3">
-                  <p className="text-sm font-medium text-pp-text">Live browser</p>
+          <section className="mt-8 overflow-hidden rounded-2xl border border-slate-800 bg-[#111827] shadow-[0_18px_50px_rgba(15,23,42,0.16)]">
+            <div className="flex flex-wrap items-center justify-between gap-3 border-b border-white/10 px-4 py-3 sm:px-5">
+              <div className="flex items-center gap-3">
+                <span className="relative flex h-2.5 w-2.5">
+                  <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-400 opacity-50" />
+                  <span className="relative inline-flex h-2.5 w-2.5 rounded-full bg-emerald-400" />
+                </span>
+                <div>
+                  <p className="text-sm font-semibold text-white">Live browser session</p>
+                  <p className="mt-0.5 text-[11px] text-slate-400">Watch the research agent navigate the booking site</p>
+                </div>
+              </div>
+              <div className="flex flex-wrap items-center gap-2">
+                {previewJobs.length > 1 ? previewJobs.map((job) => (
+                  <button
+                    key={job.id}
+                    type="button"
+                    onClick={() => setSelectedPreviewJobId(job.id)}
+                    className={`rounded-lg px-3 py-1.5 text-xs font-medium transition ${previewJob?.id === job.id ? "bg-white text-slate-900" : "bg-white/10 text-slate-300 hover:bg-white/15"}`}
+                  >
+                    {job.providerName || job.provider} · {job.market}
+                  </button>
+                )) : null}
+                <button
+                  type="button"
+                  onClick={() => setWatchLive((value) => !value)}
+                  className="rounded-lg border border-white/15 px-3 py-1.5 text-xs font-medium text-slate-200 hover:bg-white/10"
+                >
+                  {watchLive ? "Minimize" : "Expand"}
+                </button>
+              </div>
+            </div>
+            <div className="bg-[#0b1220] p-2 sm:p-3">
+              {watchLive ? (
+                <iframe
+                  title={`TinyFish live browser — ${previewJob?.providerName || "provider"}`}
+                  src={previewUrl}
+                  allow="clipboard-read; clipboard-write"
+                  className="h-[min(72vh,760px)] w-full rounded-lg border border-white/10 bg-white"
+                />
+              ) : (
+                <div className="flex min-h-44 flex-col items-center justify-center rounded-lg border border-white/10 bg-[radial-gradient(ellipse_at_center,_rgba(59,130,246,0.16),_transparent_65%)] px-5 py-8 text-center">
+                  <div className="mb-3 flex h-11 w-11 items-center justify-center rounded-xl border border-white/10 bg-white/5 text-lg text-blue-300">↗</div>
+                  <p className="text-sm font-medium text-white">{previewJob?.providerName || "Booking provider"} is open in the research browser</p>
+                  <p className="mt-1 text-xs text-slate-400">The live session is available while the agent is working.</p>
                   <button
                     type="button"
-                    className="text-sm text-pp-accent"
-                    onClick={() => setWatchLive(false)}
+                    onClick={() => setWatchLive(true)}
+                    className="mt-4 rounded-lg bg-white px-4 py-2 text-xs font-semibold text-slate-900 transition hover:bg-slate-100"
                   >
-                    Close
+                    Watch live session
                   </button>
                 </div>
-                <iframe
-                  title="TinyFish live browser"
-                  src={previewUrl}
-                  className="mt-3 aspect-video w-full rounded-xl border border-pp-border bg-pp-bg"
-                />
-              </div>
-            )}
+              )}
+            </div>
           </section>
         ) : null}
 
