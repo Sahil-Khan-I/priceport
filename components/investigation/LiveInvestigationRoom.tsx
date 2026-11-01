@@ -509,7 +509,11 @@ export default function LiveInvestigationRoom({
                 </span>
                 <div>
                   <p className="text-sm font-semibold text-white">Live browser session</p>
-                  <p className="mt-0.5 text-[11px] text-slate-400">Watch the research agent navigate the booking site</p>
+                  <p className="mt-0.5 text-[11px] text-slate-400">
+                    {previewJob
+                      ? `${previewJob.providerName || previewJob.provider} · ${previewJob.market} · ${accessLabel(previewJob)}`
+                      : "Waiting for a real TinyFish streaming URL"}
+                  </p>
                 </div>
               </div>
               <div className="flex flex-wrap items-center gap-2">

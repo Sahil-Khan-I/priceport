@@ -67,6 +67,7 @@ export default function SearchWorkflow() {
   const [suggestLoading, setSuggestLoading] = useState(false);
   const [suggestError, setSuggestError] = useState("");
   const [openMenu, setOpenMenu] = useState<OpenMenu>("none");
+  const [guestOpen, setGuestOpen] = useState(false);
   const [hotelHighlight, setHotelHighlight] = useState(0);
   const [destHighlight, setDestHighlight] = useState(0);
   const [showUrlPanel, setShowUrlPanel] = useState(false);
@@ -185,7 +186,10 @@ export default function SearchWorkflow() {
   // Outside click closes menus
   useEffect(() => {
     function onDoc(e: MouseEvent) {
-      if (!rootRef.current?.contains(e.target as Node)) setOpenMenu("none");
+      if (!rootRef.current?.contains(e.target as Node)) {
+        setOpenMenu("none");
+        setGuestOpen(false);
+      }
     }
     function onKey(e: globalThis.KeyboardEvent) {
       if (e.key === "Escape") setOpenMenu("none");
@@ -481,7 +485,7 @@ export default function SearchWorkflow() {
     } else if (e.key === "ArrowUp") {
       e.preventDefault();
       setHotelHighlight((i) => (i - 1 + hotelSuggestions.length) % hotelSuggestions.length);
-    } else if (e.key === "Enter") {
+    } else if (e.key === "Enter" || e.key === "Tab") {
       e.preventDefault();
       const pick = hotelSuggestions[hotelHighlight];
       if (pick) selectHotel(pick);
@@ -512,7 +516,7 @@ export default function SearchWorkflow() {
           <div className="mt-3 flex flex-col justify-between gap-3 md:flex-row md:items-end">
             <div>
               <h1 className="max-w-3xl text-[2.15rem] font-semibold leading-[1.08] tracking-[-0.045em] text-pp-text sm:text-5xl">
-                The right stay.<br className="hidden sm:block" /> At the right price.
+                Find the better price for your stay.
               </h1>
               <p className="mt-3 max-w-2xl text-sm leading-6 text-pp-muted sm:text-base">
                 Choose a hotel and we&apos;ll check live offers across booking sites and markets.
@@ -594,7 +598,7 @@ export default function SearchWorkflow() {
                               <span className="text-lg">{option.flag}</span>
                               <span>
                                 <span className="block text-sm font-medium text-pp-text">
-                                  {option.city}
+                                  <Highlight text={option.city} query={destinationQuery} />
                                 </span>
                                 <span className="block text-xs text-pp-muted">
                                   {option.country}
@@ -718,7 +722,7 @@ export default function SearchWorkflow() {
                               </span>
                               <span className="min-w-0 flex-1">
                                 <span className="block truncate text-sm font-semibold text-pp-text">
-                                  {candidate.name}
+                                  <Highlight text={candidate.name} query={hotelQuery} />
                                 </span>
                                 <span className="mt-1 block truncate text-xs text-pp-muted">
                                   {[candidate.city || candidate.location, candidate.country]
@@ -790,13 +794,15 @@ export default function SearchWorkflow() {
               </div>
               </div>
               {hotel ? (
+                <>
                 <div className="pp-enter mt-5 rounded-2xl border border-blue-100 bg-blue-50/50 p-3.5">
                   <div className="flex flex-wrap items-center justify-between gap-3">
                     <div className="flex min-w-0 items-center gap-3">
                       <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-white text-sm font-semibold text-pp-accent shadow-sm">✓</span>
                       <div className="min-w-0">
                         <p className="text-[10px] font-semibold uppercase tracking-[0.13em] text-pp-muted">Property selected</p>
-                        <p className="mt-0.5 truncate text-sm font-semibold text-pp-text">{hotel.location || destination?.label}</p>
+                        <p className="mt-0.5 truncate text-sm font-semibold text-pp-text">{hotel.name}</p>
+                        <p className="truncate text-xs text-pp-muted">{hotel.location || destination?.label} · {sourceLabel(hotel)}</p>
                       </div>
                     </div>
                     <button
@@ -836,20 +842,62 @@ export default function SearchWorkflow() {
                     </label>
                   </div>
                   <p className="mt-2 text-[11px] text-pp-muted">{nightCount} {nightCount === 1 ? "night" : "nights"} · {staySummary}</p>
-                  <div className="mt-3 grid gap-2 sm:grid-cols-3">
-                    <Stepper label="Adults" value={adults} min={1} onChange={setAdults} />
-                    <Stepper
-                      label="Children"
-                      value={children}
-                      min={0}
-                      onChange={(next) => {
-                        setChildren(next);
-                        setChildrenAges((ages) =>
-                          Array.from({ length: next }, (_, i) => ages[i] ?? 8),
-                        );
-                      }}
-                    />
-                    <Stepper label="Rooms" value={rooms} min={1} onChange={setRooms} />
+                  <div className="relative mt-3">
+                    <button
+                      type="button"
+                      className="rounded-xl border border-pp-border bg-white px-4 py-3 text-left text-sm text-pp-text"
+                      onClick={() => setGuestOpen((open) => !open)}
+                      aria-expanded={guestOpen}
+                    >
+                      {adults} adult{adults === 1 ? "" : "s"}
+                      {children ? ` · ${children} child${children === 1 ? "" : "ren"}` : ""}
+                      {" · "}
+                      {rooms} room{rooms === 1 ? "" : "s"}
+                    </button>
+                    {guestOpen ? (
+                      <div className="absolute left-0 z-30 mt-2 w-full max-w-sm rounded-2xl border border-pp-border bg-white p-3 shadow-pp-soft">
+                        <Stepper label="Adults" value={adults} min={1} onChange={setAdults} />
+                        <div className="mt-2">
+                          <Stepper
+                            label="Children"
+                            value={children}
+                            min={0}
+                            onChange={(next) => {
+                              setChildren(next);
+                              setChildrenAges((ages) =>
+                                Array.from({ length: next }, (_, i) => ages[i] ?? 8),
+                              );
+                            }}
+                          />
+                        </div>
+                        <div className="mt-2">
+                          <Stepper label="Rooms" value={rooms} min={1} onChange={setRooms} />
+                        </div>
+                        {children > 0 ? (
+                          <div className="mt-3 grid gap-2">
+                            {childrenAges.map((age, index) => (
+                              <label key={`popover-age-${index}`} className="text-xs font-medium text-pp-text">
+                                Child {index + 1} age
+                                <select
+                                  value={age}
+                                  onChange={(e) => {
+                                    const value = Number(e.target.value);
+                                    setChildrenAges((ages) =>
+                                      ages.map((item, i) => (i === index ? value : item)),
+                                    );
+                                  }}
+                                  className={`mt-1 ${fieldClass}`}
+                                >
+                                  {Array.from({ length: 18 }, (_, i) => (
+                                    <option key={i} value={i}>{i}</option>
+                                  ))}
+                                </select>
+                              </label>
+                            ))}
+                          </div>
+                        ) : null}
+                      </div>
+                    ) : null}
                   </div>
                   <div className="mt-4 flex flex-wrap items-center justify-between gap-2 border-t border-pp-border pt-4">
                     <div>
@@ -877,7 +925,7 @@ export default function SearchWorkflow() {
                       Adjust comparison
                     </Button>
                   </div>
-                </div>
+                </>
               ) : null}
             </div>
           </section>
@@ -1234,6 +1282,22 @@ export default function SearchWorkflow() {
         ) : null}
       </Container>
     </div>
+  );
+}
+
+function Highlight({ text, query }: { text: string; query: string }) {
+  const needle = query.trim();
+  if (!needle) return text;
+  const index = text.toLowerCase().indexOf(needle.toLowerCase());
+  if (index < 0) return text;
+  return (
+    <>
+      {text.slice(0, index)}
+      <mark className="bg-transparent font-semibold text-pp-accent">
+        {text.slice(index, index + needle.length)}
+      </mark>
+      {text.slice(index + needle.length)}
+    </>
   );
 }
 

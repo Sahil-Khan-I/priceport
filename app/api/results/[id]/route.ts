@@ -7,6 +7,8 @@ import {
   listTracks,
 } from "@/lib/storage/observations-store";
 import { detectPriceMovement } from "@/lib/pricing/observations";
+import { calculateSavings, perNight, stayNights } from "@/lib/pricing/savings";
+import { resolveBookingLink } from "@/lib/offers/booking-link";
 
 export async function GET(_request: Request, context: { params: Promise<{ id: string }> }) {
   const { id } = await context.params;
@@ -37,6 +39,23 @@ export async function GET(_request: Request, context: { params: Promise<{ id: st
     });
   }
 
+  const stay = record.request?.bookingDetails || {};
+  const nights = stayNights(stay.checkIn, stay.checkOut);
+  const savings = calculateSavings(ranking.offers, {
+    currency: record.request.preferredCurrency || "USD",
+    checkIn: stay.checkIn,
+    checkOut: stay.checkOut,
+  });
+  const offersWithLinks = ranking.offers.map((offer: any) => ({
+    ...offer,
+    bookingLink: resolveBookingLink(offer),
+    nights,
+    perNight: {
+      original: perNight(offer.totalPrice, nights),
+      converted: perNight(offer.conversion?.available ? offer.conversion.amount : null, nights),
+    },
+  }));
+
   const tracks = await listTracks();
   const relatedTrack =
     tracks.find((t) => t.investigationId === id || t.lastInvestigationId === id) ||
@@ -47,7 +66,9 @@ export async function GET(_request: Request, context: { params: Promise<{ id: st
     status: record.status,
     request: record.request,
     summary: record.summary,
-    offers: ranking.offers,
+    offers: offersWithLinks,
+    savings,
+    nights,
     lowestComparable: ranking.lowestComparable,
     cheapestBookable: ranking.cheapestBookable,
     lowestDisplayed: ranking.lowestDisplayed,

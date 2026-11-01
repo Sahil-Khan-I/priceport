@@ -162,8 +162,14 @@ export default function ResultsView({
         </div>
       </div>
 
+      <SavingsSummaryCard
+        savings={data.savings}
+        currency={currency}
+        nights={data.nights}
+      />
+
       {/* A. Decision summary */}
-      <section className="mt-10 rounded-2xl border border-pp-border bg-pp-white p-6">
+      <section className="mt-6 rounded-2xl border border-pp-border bg-pp-white p-6">
         <p className="text-xs font-semibold uppercase tracking-[0.14em] text-pp-muted">
           Recommendation
         </p>
@@ -232,7 +238,32 @@ export default function ResultsView({
           honestly: Proxy = documented local IP; Storefront = regional site only.
           Missing fields stay unknown — never invented.
         </p>
-        <div className="mt-4 overflow-x-auto rounded-2xl border border-pp-border bg-white">
+        <ul className="mt-4 grid gap-3 lg:grid-cols-2">
+          {data.offers.length === 0 ? (
+            <li className="rounded-2xl border border-pp-border bg-white px-4 py-6 text-sm text-pp-muted lg:col-span-2">
+              No usable offers yet. Failed or incomplete checks stay visible in the live research view.
+            </li>
+          ) : (
+            data.offers.map((offer: any) => (
+              <li key={`card-${offer.id}`}>
+                <OfferCard
+                  offer={offer}
+                  currency={currency}
+                  selected={selectedOfferId === offer.id}
+                  tags={offerTags(offer, data)}
+                  onSelect={() => setSelectedOfferId(offer.id)}
+                />
+              </li>
+            ))
+          )}
+        </ul>
+        <p className="mt-6 text-xs font-semibold uppercase tracking-[0.14em] text-pp-muted md:hidden">
+          Detailed comparison is available on larger screens
+        </p>
+        <p className="mt-6 hidden text-xs font-semibold uppercase tracking-[0.14em] text-pp-muted md:block">
+          Detailed comparison
+        </p>
+        <div className="mt-4 hidden overflow-x-auto rounded-2xl border border-pp-border bg-white md:block">
           <table className="min-w-[900px] w-full border-collapse text-left text-sm">
             <thead className="bg-slate-50 text-[11px] font-semibold uppercase tracking-[0.08em] text-pp-muted">
               <tr>
@@ -547,6 +578,197 @@ export default function ResultsView({
         </Link>
       </p>
     </Container>
+  );
+}
+
+function offerTags(offer: any, data: any) {
+  const tags: Array<{ label: string; tone: "blue" | "emerald" | "amber" | "slate" }> = [];
+  if (data.bestVerified?.id === offer.id) tags.push({ label: "Best verified", tone: "emerald" });
+  if (data.lowestComparable?.id === offer.id) tags.push({ label: "Lowest comparable", tone: "blue" });
+  if (data.lowestDisplayed?.id === offer.id) tags.push({ label: "Lowest displayed", tone: "slate" });
+  if (data.cheapestBookable?.id === offer.id) tags.push({ label: "Cheapest bookable", tone: "blue" });
+  if (!offer.trueCost?.fullyComparable) tags.push({ label: "Incomplete total", tone: "amber" });
+  if (!["verified", "partially_verified"].includes(String(offer.verificationStatus))) {
+    tags.push({ label: "Unverified", tone: "amber" });
+  }
+  return tags;
+}
+
+const TAG_TONE = {
+  blue: "bg-blue-50 text-blue-700",
+  emerald: "bg-emerald-50 text-emerald-700",
+  amber: "bg-amber-50 text-amber-800",
+  slate: "bg-slate-100 text-slate-700",
+} as const;
+
+function taxesLine(offer: any) {
+  const taxes = offer.taxes;
+  const fees = offer.mandatoryFees;
+  if (taxes == null && fees == null) return "Taxes and fees not confirmed";
+  const parts: string[] = [];
+  if (taxes != null) parts.push(`taxes ${formatMoney(taxes, offer.currency || "USD")}`);
+  if (fees != null) parts.push(`mandatory fees ${formatMoney(fees, offer.currency || "USD")}`);
+  if (taxes == null || fees == null) parts.push("rest not confirmed");
+  return parts.join(" · ");
+}
+
+function OfferCard({
+  offer,
+  currency,
+  selected,
+  tags,
+  onSelect,
+}: {
+  offer: any;
+  currency: string;
+  selected: boolean;
+  tags: Array<{ label: string; tone: keyof typeof TAG_TONE }>;
+  onSelect: () => void;
+}) {
+  const link = offer.bookingLink;
+  const converted = offer.conversion?.available;
+  return (
+    <article
+      className={`rounded-2xl border bg-white p-5 shadow-[0_1px_0_rgba(23,32,51,0.04),0_10px_24px_rgba(23,32,51,0.05)] transition-[border-color,box-shadow] duration-150 ${
+        selected ? "border-pp-accent" : "border-pp-border hover:border-slate-300"
+      }`}
+    >
+      <button type="button" onClick={onSelect} className="w-full text-left" aria-pressed={selected}>
+        <div className="flex flex-wrap items-start justify-between gap-2">
+          <div>
+            <p className="text-sm font-semibold text-pp-text">{offer.provider}</p>
+            <p className="mt-0.5 text-xs text-pp-muted">
+              {offer.market} · {formatAccessLabel(offer)}
+            </p>
+          </div>
+          <div className="flex flex-wrap justify-end gap-1.5">
+            {tags.slice(0, 3).map((tag) => (
+              <span
+                key={tag.label}
+                className={`rounded-md px-2 py-0.5 text-[11px] font-semibold ${TAG_TONE[tag.tone]}`}
+              >
+                {tag.label}
+              </span>
+            ))}
+          </div>
+        </div>
+
+        <div className="mt-4">
+          <p className="text-3xl font-semibold tabular-nums tracking-tight text-pp-text">
+            {converted ? formatMoney(offer.conversion.amount, currency) : offer.totalPrice != null ? formatMoney(offer.totalPrice, offer.currency || currency) : "Price unavailable"}
+          </p>
+          <p className="mt-1 text-xs text-pp-muted">
+            {converted
+              ? `Converted from ${offer.totalPrice != null ? formatMoney(offer.totalPrice, offer.currency || currency) : "provider price"} · ${offer.conversion.source || "FX source unavailable"}`
+              : offer.conversion?.reason || "Shown in the provider currency. Conversion unavailable."}
+          </p>
+          {offer.perNight?.converted != null || offer.perNight?.original != null ? (
+            <p className="mt-1 text-sm tabular-nums text-pp-text">
+              {offer.perNight.converted != null
+                ? formatMoney(offer.perNight.converted, currency)
+                : formatMoney(offer.perNight.original, offer.currency || currency)}{" "}
+              <span className="text-pp-muted">per night · {offer.nights} nights</span>
+            </p>
+          ) : null}
+        </div>
+
+        <dl className="mt-4 grid grid-cols-[88px_1fr] gap-x-3 gap-y-1.5 text-xs">
+          <dt className="text-pp-muted">Room</dt>
+          <dd className="text-pp-text">{offer.roomType || "Not identified"}</dd>
+          <dt className="text-pp-muted">Meals</dt>
+          <dd className="text-pp-text">{offer.mealPlan || "Unknown"}</dd>
+          <dt className="text-pp-muted">Cancellation</dt>
+          <dd className="text-pp-text">{offer.cancellationPolicy || "Not confirmed"}</dd>
+          <dt className="text-pp-muted">Taxes & fees</dt>
+          <dd className="text-pp-text">{taxesLine(offer)}</dd>
+          <dt className="text-pp-muted">Eligibility</dt>
+          <dd className="text-pp-text">{offer.eligibilityAssessment?.status || "Not checked"}</dd>
+          <dt className="text-pp-muted">Checked</dt>
+          <dd className="text-pp-text">
+            {offer.checkedAt ? new Date(offer.checkedAt).toLocaleString() : "Unknown"}
+          </dd>
+        </dl>
+      </button>
+
+      <div className="mt-4 flex flex-wrap items-center gap-3 border-t border-pp-border pt-4">
+        {link?.url ? (
+          <a
+            href={link.url}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="inline-flex items-center rounded-xl bg-pp-accent px-4 py-2.5 text-sm font-medium text-white shadow-[0_3px_0_0_#2f63c4] transition-[transform,box-shadow] duration-150 hover:-translate-y-px active:translate-y-[2px] active:shadow-[0_1px_0_0_#2f63c4] motion-reduce:transition-none"
+          >
+            {link.label} ↗
+          </a>
+        ) : (
+          <span className="text-sm text-pp-muted">{link?.label || "No booking link available"}</span>
+        )}
+        {link?.note ? <span className="text-xs text-pp-muted">{link.note}</span> : null}
+      </div>
+    </article>
+  );
+}
+
+function SavingsSummaryCard({
+  savings,
+  currency,
+  nights,
+}: {
+  savings: any;
+  currency: string;
+  nights: number | null;
+}) {
+  if (!savings) return null;
+  const head = savings.headline;
+  return (
+    <section className="mt-8 rounded-2xl border border-pp-border bg-white p-6 shadow-[0_1px_0_rgba(23,32,51,0.04),0_10px_24px_rgba(23,32,51,0.05)]">
+      {head ? (
+        <>
+          <p className="text-xs font-semibold uppercase tracking-[0.14em] text-emerald-700">
+            Verified comparable savings
+          </p>
+          <p className="mt-2 text-4xl font-semibold tabular-nums tracking-tight text-pp-text">
+            Save up to {formatMoney(head.savings, currency)}
+          </p>
+          <p className="mt-1 text-sm text-pp-muted">
+            {head.percent}% below the highest comparable offer
+            {nights ? ` · ${nights} nights` : ""}
+          </p>
+          <dl className="mt-5 grid gap-4 sm:grid-cols-3">
+            <div>
+              <dt className="text-xs text-pp-muted">Lowest comparable total</dt>
+              <dd className="mt-1 text-lg font-semibold tabular-nums text-pp-text">{formatMoney(head.lowest, currency)}</dd>
+            </div>
+            <div>
+              <dt className="text-xs text-pp-muted">Highest comparable total</dt>
+              <dd className="mt-1 text-lg font-semibold tabular-nums text-pp-text">{formatMoney(head.highest, currency)}</dd>
+            </div>
+            <div>
+              <dt className="text-xs text-pp-muted">Compared on</dt>
+              <dd className="mt-1 text-sm text-pp-text">{head.label}</dd>
+            </div>
+          </dl>
+        </>
+      ) : (
+        <>
+          <p className="text-xs font-semibold uppercase tracking-[0.14em] text-pp-muted">Savings</p>
+          <p className="mt-2 text-lg font-semibold text-pp-text">{savings.reason}</p>
+        </>
+      )}
+      <p className="mt-4 text-xs leading-5 text-pp-muted">
+        {savings.basis}
+        {savings.fxSource ? ` Converted using ${savings.fxSource}.` : ""} Prices are not guaranteed and may change before booking.
+      </p>
+      {savings.groups?.length > 1 ? (
+        <ul className="mt-3 space-y-1 text-xs text-pp-muted">
+          {savings.groups.slice(1).map((group: any) => (
+            <li key={group.key}>
+              {group.label}: up to {formatMoney(group.savings, currency)} ({group.percent}%)
+            </li>
+          ))}
+        </ul>
+      ) : null}
+    </section>
   );
 }
 

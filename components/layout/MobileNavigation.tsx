@@ -25,7 +25,7 @@ export default function MobileNavigation({ open, onClose }) {
         ))}
         <div className="px-3 pt-3">
           <Button href="/search" className="w-full" onClick={onClose}>
-            Start comparing
+            Compare prices
           </Button>
         </div>
       </nav>
