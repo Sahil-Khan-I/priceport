@@ -1,7 +1,6 @@
 /**
- * Initial comparison budget.
- * Aborting the local stream stops Priceport from waiting.
- * It does not guarantee the remote TinyFish run is cancelled.
+ * Job planning and terminal-state rules.
+ * Closing a local TinyFish stream does not guarantee the remote browser stopped.
  */
 
 const ACTIVE = new Set([
@@ -13,7 +12,7 @@ const ACTIVE = new Set([
   "verifying",
 ]);
 
-const TERMINAL = new Set(["completed", "failed", "timed_out", "unsupported", "cancelled"]);
+const TERMINAL = new Set(["completed", "failed", "timed_out", "unsupported", "cancelled", "interrupted"]);
 
 export function planSearchPairs(providers: string[] = [], markets: string[] = []) {
   const uniqueProviders = [...new Set(providers.map((item) => String(item || "").trim()).filter(Boolean))];
@@ -32,26 +31,6 @@ export function planSearchPairs(providers: string[] = [], markets: string[] = []
     }
   }
   return { primaryMarket: primary, initial, deferred };
-}
-
-export function applyDeadline(jobs: any[] = []) {
-  let changed = false;
-  const next = jobs.map((job) => {
-    if (job.stage === "deferred" || job.status === "deferred") return job;
-    if (job.stage === "expanded") return job;
-    if (TERMINAL.has(job.status)) return job;
-    changed = true;
-    const queued = job.status === "queued";
-    return {
-      ...job,
-      status: "timed_out",
-      finishedAt: job.finishedAt || new Date().toISOString(),
-      error: queued
-        ? "Not started. The 2-minute comparison deadline passed."
-        : "Stopped at the 2-minute deadline. Any price already found is kept.",
-    };
-  });
-  return { jobs: next, changed };
 }
 
 export function canReplaceJobStatus(current: string, next?: string | null) {
@@ -76,16 +55,23 @@ export function isAbortError(error: unknown) {
   return name === "AbortError" || /operation was aborted|aborted/i.test(message);
 }
 
-/** Deadline and local aborts are timeouts. Other errors stay provider failures. */
+/** A local abort is not a deadline timeout. Cancellation is explicit. */
 export function classifyExecutionFailure(
   error: unknown,
-  { deadlineAbort = false }: { deadlineAbort?: boolean } = {},
+  { cancelled = false }: { cancelled?: boolean } = {},
 ) {
-  if (deadlineAbort || isAbortError(error)) {
+  if (cancelled) {
     return {
-      status: "timed_out" as const,
-      message: "Stopped at the 2-minute deadline. Any price already found is kept.",
-      eventType: "TIMEOUT" as const,
+      status: "cancelled" as const,
+      message: "Stopped by you. Prices already found are kept.",
+      eventType: "CANCELLED" as const,
+    };
+  }
+  if (isAbortError(error)) {
+    return {
+      status: "failed" as const,
+      message: "The local stream closed before TinyFish returned a result.",
+      eventType: "ERROR" as const,
     };
   }
   return {
@@ -98,34 +84,15 @@ export function classifyExecutionFailure(
 export function deriveInvestigationStatus(jobs: any[] = []) {
   const scoped = jobs.filter((job) => job.status !== "deferred" && job.stage !== "deferred");
   if (scoped.some((job) => ACTIVE.has(job.status))) return "running";
-  const usable = scoped.filter((job) => job.status === "completed").length;
-  const bad = scoped.filter((job) => job.status === "failed" || job.status === "timed_out").length;
-  if (usable > 0 && bad > 0) return "partial";
-  if (usable > 0) return "completed";
+  const completed = scoped.filter((job) => job.status === "completed").length;
+  const cancelled = scoped.filter((job) => job.status === "cancelled").length;
+  const bad = scoped.filter((job) =>
+    ["failed", "timed_out", "interrupted"].includes(job.status),
+  ).length;
+  if (completed > 0 && (bad > 0 || cancelled > 0)) return "partial";
+  if (completed > 0) return "completed";
+  if (cancelled > 0 && bad === 0) return "cancelled";
   return "failed";
-}
-
-export function formatComparisonClock({
-  startedAt,
-  now,
-  deadlineAt,
-  finalizedAt,
-}: {
-  startedAt?: string | null;
-  now: number;
-  deadlineAt?: string | null;
-  finalizedAt?: string | null;
-}) {
-  const start = Date.parse(startedAt || "");
-  if (!Number.isFinite(start)) return "0:00";
-  const deadline = Number.isFinite(Date.parse(deadlineAt || ""))
-    ? Date.parse(deadlineAt || "")
-    : start + 120_000;
-  const frozen = finalizedAt ? Date.parse(finalizedAt) : now;
-  const end = Math.min(deadline, Number.isFinite(frozen) ? frozen : now);
-  const seconds = Math.min(120, Math.max(0, Math.round((end - start) / 1000)));
-  const minutes = Math.floor(seconds / 60);
-  return `${minutes}:${String(seconds % 60).padStart(2, "0")}`;
 }
 
 function key(provider: string, market: string) {

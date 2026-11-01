@@ -5,6 +5,7 @@ import { getProviderAdapter } from "@/lib/providers/provider-registry";
 import { resolveMarketAccess } from "@/lib/markets/config";
 import {
   loadInvestigation,
+  listInvestigations,
   saveInvestigation,
   updateInvestigation,
 } from "@/lib/storage/file-store";
@@ -16,19 +17,57 @@ import { resolveStreamOutcome } from "./lifecycle";
 import { explicitUnavailable } from "#unavailable";
 import { expandPairs, filterNewPairs, pairKey } from "./job-plan";
 import {
-  applyDeadline,
   canReplaceJobStatus,
   classifyExecutionFailure,
   deriveInvestigationStatus,
   planSearchPairs,
   shouldFinalize,
 } from "./deadline";
-import { INVESTIGATION_DEADLINE_MS, JOB_STATUS, JOB_TIMEOUT_MS, mapTinyFishEventToStatus } from "./status";
+import { JOB_STATUS, mapTinyFishEventToStatus } from "./status";
 import { getMarket } from "@/lib/markets/config";
 import { resolveProviderPropertyUrls } from "@/lib/providers/resolve-property-url";
 
 const running = new Set();
 const liveAborts = new Map();
+let recovery: Promise<void> | null = null;
+
+const IN_FLIGHT = new Set(["starting", "navigating", "searching", "extracting", "verifying"]);
+
+function recoverInterruptedJobs() {
+  if (!recovery) {
+    recovery = markInterruptedJobs().catch(() => undefined);
+  }
+  return recovery;
+}
+
+async function markInterruptedJobs() {
+  const records = await listInvestigations();
+  for (const record of records) {
+    const stale = record.jobs?.some(
+      (job) => IN_FLIGHT.has(job.status) && !liveAborts.get(record.id)?.has(job.id),
+    );
+    if (!stale) continue;
+    await updateInvestigation(record.id, (rec) => {
+      rec.jobs = rec.jobs.map((job) => {
+        if (!IN_FLIGHT.has(job.status)) return job;
+        if (liveAborts.get(record.id)?.has(job.id)) return job;
+        return {
+          ...job,
+          status: JOB_STATUS.INTERRUPTED,
+          error:
+            "The local worker restarted before this check finished. The remote TinyFish run may still be active. Retry manually.",
+          finishedAt: job.finishedAt || new Date().toISOString(),
+        };
+      });
+      if (!rec.jobs.some((job) => IN_FLIGHT.has(job.status) || job.status === JOB_STATUS.QUEUED)) {
+        rec.status = deriveInvestigationStatus(rec.jobs);
+        rec.finalizedAt = rec.finalizedAt || new Date().toISOString();
+      }
+      rec.summary = summarize(rec.jobs);
+      return rec;
+    });
+  }
+}
 
 export async function createInvestigation(input: any) {
   if (!isTinyFishConfigured()) {
@@ -46,7 +85,6 @@ export async function createInvestigation(input: any) {
     plan.initial.map((pair) => pair.provider),
   );
   const startedAt = new Date();
-  const deadlineAt = new Date(startedAt.getTime() + INVESTIGATION_DEADLINE_MS).toISOString();
   const jobs = [
     ...materializePlanned(plan.initial, {
       marketAccess: input.marketAccess,
@@ -68,7 +106,6 @@ export async function createInvestigation(input: any) {
     updatedAt: startedAt.toISOString(),
     status: "queued",
     stage: "initial",
-    deadlineAt,
     finalizedAt: null,
     request: { ...input, hotel },
     timings: {
@@ -352,7 +389,9 @@ function materializeJobs({
 export function kick(investigationId) {
   if (running.has(investigationId)) return;
   running.add(investigationId);
-  processInvestigation(investigationId)
+  recoverInterruptedJobs()
+    .catch(() => {})
+    .then(() => processInvestigation(investigationId))
     .catch(async (error) => {
       await updateInvestigation(investigationId, (rec) => {
         if (rec.finalizedAt) return rec;
@@ -382,17 +421,6 @@ async function processInvestigation(investigationId) {
     return rec;
   });
 
-  const deadlineAt = Date.parse(record.deadlineAt || "") || Date.parse(record.createdAt) + INVESTIGATION_DEADLINE_MS;
-  const remaining = deadlineAt - Date.now();
-  let deadlineTimer: ReturnType<typeof setTimeout> | null = null;
-  if (remaining <= 0) {
-    await enforceDeadline(investigationId);
-    return;
-  }
-  deadlineTimer = setTimeout(() => {
-    void enforceDeadline(investigationId);
-  }, remaining);
-
   try {
     const runnable = record.jobs.filter(
       (job) => job.status === JOB_STATUS.QUEUED && job.stage !== "deferred",
@@ -403,35 +431,19 @@ async function processInvestigation(investigationId) {
       ),
     );
     await finalizeInvestigation(investigationId);
-  } finally {
-    if (deadlineTimer) clearTimeout(deadlineTimer);
-  }
-}
-
-async function enforceDeadline(investigationId) {
-  const controllers = liveAborts.get(investigationId) || new Map();
-  for (const [, entry] of controllers) {
-    if (entry.stage === "expanded") continue;
-    entry.reason = "deadline";
-    entry.abort.abort();
-    void entry.stream?.close?.().catch(() => {});
-  }
-  await updateInvestigation(investigationId, (rec) => {
-    const next = applyDeadline(rec.jobs);
-    rec.jobs = next.jobs;
-    rec.summary = summarize(rec.jobs);
-    if (next.changed) {
+  } catch (error) {
+    await updateInvestigation(investigationId, (rec) => {
+      if (rec.finalizedAt) return rec;
       rec.events.push({
         id: `evt_${randomUUID().slice(0, 8)}`,
-        type: "DEADLINE",
-        message: "Initial comparison stopped at 2 minutes. Prices already found are kept.",
+        type: "INVESTIGATION_FAILED",
+        message: error instanceof Error ? error.message : "Runner failed",
         jobId: null,
         at: new Date().toISOString(),
       });
-    }
-    return rec;
-  });
-  await finalizeInvestigation(investigationId);
+      return rec;
+    });
+  }
 }
 
 async function finalizeInvestigation(investigationId) {
@@ -487,13 +499,11 @@ async function executeJob(investigationId, jobId) {
   const current = await loadInvestigation(investigationId);
   const job = current?.jobs?.find((j) => j.id === jobId);
   if (!job || job.status !== JOB_STATUS.QUEUED) return;
-  const deadlineAt = Date.parse(current.deadlineAt || "") || Date.parse(current.createdAt) + INVESTIGATION_DEADLINE_MS;
-  const remaining = job.stage === "expanded" ? JOB_TIMEOUT_MS : deadlineAt - Date.now();
-  if (job.stage !== "expanded" && remaining <= 0) {
+  if (current?.cancelRequested) {
     await patchJob(investigationId, jobId, {
-      status: JOB_STATUS.TIMED_OUT,
+      status: JOB_STATUS.CANCELLED,
       finishedAt: new Date().toISOString(),
-      error: "Not started. The 2-minute comparison deadline passed.",
+      error: "Stopped by you before this check started.",
     });
     return;
   }
@@ -537,11 +547,6 @@ async function executeJob(investigationId, jobId) {
   const timers = liveAborts.get(investigationId) || new Map();
   timers.set(jobId, entry);
   liveAborts.set(investigationId, timers);
-  // Abort stops this process from waiting. TinyFish may still finish the remote run.
-  const timer = setTimeout(() => {
-    entry.reason = "deadline";
-    abort.abort();
-  }, Math.max(1, Math.min(JOB_TIMEOUT_MS, remaining)));
 
   try {
     let completePayload: any = null;
@@ -558,7 +563,6 @@ async function executeJob(investigationId, jobId) {
       },
       {
         onStarted: async (event) => {
-          entry.stream = stream;
           await stamp({ startedEventAt: new Date().toISOString() });
           await patchJob(investigationId, jobId, {
             status: JOB_STATUS.STARTING,
@@ -620,6 +624,7 @@ async function executeJob(investigationId, jobId) {
         },
       },
     );
+    entry.stream = stream;
 
     for await (const event of stream) {
       if (event?.type === "COMPLETE") completePayload = event;
@@ -716,10 +721,12 @@ async function executeJob(investigationId, jobId) {
     });
   } catch (error) {
     const failure = classifyExecutionFailure(error, {
-      deadlineAbort: entry.reason === "deadline",
+      cancelled: entry.reason === "cancel",
     });
+    const status =
+      failure.status === "cancelled" ? JOB_STATUS.CANCELLED : JOB_STATUS.FAILED;
     await stamp({
-      streamEnd: failure.status === "timed_out" ? "deadline" : "threw",
+      streamEnd: failure.status === "cancelled" ? "cancelled" : "threw",
       finishedAt: new Date().toISOString(),
       errorName: error instanceof Error ? error.name : "Error",
       errorCode:
@@ -728,8 +735,8 @@ async function executeJob(investigationId, jobId) {
           : "",
     });
     await patchJob(investigationId, jobId, {
-      status: failure.status === "timed_out" ? JOB_STATUS.TIMED_OUT : JOB_STATUS.FAILED,
-      browserSessionStatus: failure.status === "timed_out" ? "expired" : "finished",
+      status,
+      browserSessionStatus: "finished",
       extractionStatus: "failed",
       finishedAt: new Date().toISOString(),
       error: failure.message,
@@ -740,8 +747,7 @@ async function executeJob(investigationId, jobId) {
       jobId,
     });
   } finally {
-    clearTimeout(timer);
-    await entry.stream?.close?.().catch(() => {});
+    await closeLocalStream(entry.stream);
     liveAborts.get(investigationId)?.delete(jobId);
   }
 }
@@ -808,28 +814,53 @@ function logTiming(event: string, fields: Record<string, unknown>) {
 }
 
 export async function cancelInvestigation(id) {
-  // Sync /run jobs cannot be cancelled per TinyFish docs.
-  // We mark queued jobs cancelled; in-flight stream jobs continue until COMPLETE.
-  return updateInvestigation(id, (rec) => {
-    rec.jobs = rec.jobs.map((job) =>
-      job.status === JOB_STATUS.QUEUED
-        ? {
-            ...job,
-            status: JOB_STATUS.FAILED,
-            error: "Cancelled before start",
-            finishedAt: new Date().toISOString(),
-          }
-        : job,
-    );
+  const controllers = liveAborts.get(id) || new Map();
+  for (const [, entry] of controllers) entry.reason = "cancel";
+  const updated = await updateInvestigation(id, (rec) => {
+    rec.cancelRequested = true;
+    rec.jobs = rec.jobs.map((job) => {
+      if (
+        ["completed", "failed", "timed_out", "unsupported", "cancelled", "interrupted", "deferred"].includes(
+          job.status,
+        )
+      ) {
+        return job;
+      }
+      return {
+        ...job,
+        status: JOB_STATUS.CANCELLED,
+        error: "Stopped by you. Prices already found are kept.",
+        finishedAt: new Date().toISOString(),
+      };
+    });
+    rec.status = deriveInvestigationStatus(rec.jobs);
+    rec.finalizedAt = rec.finalizedAt || new Date().toISOString();
+    rec.summary = summarize(rec.jobs);
     rec.events.push({
       id: `evt_${randomUUID().slice(0, 8)}`,
-      type: "CANCEL_REQUESTED",
+      type: "CANCELLED",
       message:
-        "Cancel requested. Queued jobs stopped. In-flight TinyFish stream runs cannot always be aborted mid-flight.",
+        "Comparison cancelled. Prices already found are kept. Closing the local stream does not guarantee the remote TinyFish browser stopped.",
       jobId: null,
       at: new Date().toISOString(),
     });
-    rec.summary = summarize(rec.jobs);
     return rec;
   });
+  for (const [, entry] of controllers) {
+    entry.abort.abort();
+    await closeLocalStream(entry.stream);
+  }
+  return updated;
+}
+
+async function closeLocalStream(stream: { close?: () => unknown } | null | undefined) {
+  if (!stream || typeof stream.close !== "function") return;
+  try {
+    const result = stream.close();
+    if (result && typeof (result as Promise<unknown>).then === "function") {
+      await result;
+    }
+  } catch {
+    // Closing the local stream is best-effort.
+  }
 }

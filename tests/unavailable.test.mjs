@@ -76,7 +76,7 @@ describe("confirmed unavailability", () => {
       },
     ];
     assert.equal(jobProgressLabel(jobs[0]), "Unavailable");
-    assert.equal(jobProgressLabel(jobs[1]), "Checking Agoda");
+    assert.equal(jobProgressLabel(jobs[1]), "Extracting price");
     assert.equal(jobs[2].status, "deferred");
     const retries = planRetries(jobs, null);
     assert.equal(retries.length, 0);

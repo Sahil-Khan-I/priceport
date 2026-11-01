@@ -14,11 +14,10 @@ const ACTIVE = new Set([
 export function resolveStreamOutcome(completePayload: any) {
   if (!completePayload) {
     return {
-      status: "timed_out",
+      status: "failed",
       extractionStatus: "failed",
       browserSessionStatus: "finished",
-      error:
-        "The provider stream closed before a result arrived. The browser ending is not a completed price check.",
+      error: "The provider stream ended before TinyFish returned a result.",
     };
   }
   const runStatus = String(completePayload.status || "").toUpperCase();
@@ -48,7 +47,7 @@ export function planRetries(jobs: any[] = [], jobIds: string[] | null = null) {
     const selected = jobIds ? jobIds.includes(job.id) : true;
     const retryable =
       selected &&
-      [ "failed", "timed_out"].includes(job.status) &&
+      ["failed", "timed_out", "interrupted"].includes(job.status) &&
       job.url &&
       job.goal;
     if (!retryable) continue;

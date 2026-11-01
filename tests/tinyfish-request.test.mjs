@@ -2,7 +2,6 @@ import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { buildAgentRequest, isConfigurationRejection } from "../lib/tinyfish/request.ts";
-import { INVESTIGATION_DEADLINE_MS } from "../lib/investigations/status.ts";
 import { deriveInvestigationStatus } from "../lib/investigations/deadline.ts";
 import { planRetries } from "../lib/investigations/lifecycle.ts";
 
@@ -34,10 +33,6 @@ describe("TinyFish request shape", () => {
     }
     assert.deepEqual(booking.proxy_config, { enabled: true, country_code: "US" });
     assert.equal("proxy_config" in agoda, false);
-  });
-
-  it("keeps Priceport's own two-minute deadline", () => {
-    assert.equal(INVESTIGATION_DEADLINE_MS, 120_000);
   });
 });
 

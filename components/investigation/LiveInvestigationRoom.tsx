@@ -15,19 +15,16 @@ import {
   mergeJobs,
   jobProgressLabel,
   summarizeProgress,
+  formatElapsed,
   type LiveEvent,
   type LiveJob,
 } from "@/lib/investigations/live-view";
-import {
-  formatComparisonClock,
-} from "@/lib/investigations/deadline";
 import { describeRoomPreferences } from "@/lib/search/room-preferences";
 
 type InvestigationPayload = {
   id: string;
   status: string;
   createdAt?: string;
-  deadlineAt?: string;
   finalizedAt?: string | null;
   updatedAt?: string;
   request?: any;
@@ -158,12 +155,14 @@ export default function LiveInvestigationRoom({
     const timer = setInterval(tick, 1000);
     return () => clearInterval(timer);
   }, []);
-  const elapsedLabel = formatComparisonClock({
-    startedAt: data?.createdAt,
-    now: now || Date.parse(data?.createdAt || "") || 0,
-    deadlineAt: data?.deadlineAt,
-    finalizedAt: data?.finalizedAt,
-  });
+  const elapsedLabel = formatElapsed(data?.createdAt, now || 0);
+  const lastEventAt = useMemo(() => {
+    const times = events
+      .map((event) => Date.parse(event.at || ""))
+      .filter((value) => Number.isFinite(value));
+    if (!times.length) return null;
+    return new Date(Math.max(...times)).toISOString();
+  }, [events]);
   const groups = useMemo(() => groupJobsByProvider(jobs), [jobs]);
   const findings = useMemo(
     () => jobs.filter((job) => job.offer?.totalPrice != null),
@@ -352,9 +351,14 @@ export default function LiveInvestigationRoom({
                 {running ? "Checking prices" : "Check finished"}
               </h2>
               <p className="mt-1 text-sm text-pp-muted">
-                {elapsedLabel || "0:00"} of 2:00
+                {running ? "Checking" : "Finished"} · {elapsedLabel}
                 {progress.offers ? ` · ${progress.offers} price${progress.offers === 1 ? "" : "s"} found` : ""}
               </p>
+              {running && lastEventAt && now ? (
+                <p className="mt-1 text-sm text-pp-muted">
+                  Last provider update {formatElapsed(lastEventAt, now)} ago. The check stays active until TinyFish finishes or you cancel it.
+                </p>
+              ) : null}
             </div>
             <p className="text-sm text-pp-text">
               {progress.terminal} of {progress.total} checks finished

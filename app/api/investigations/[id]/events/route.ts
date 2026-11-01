@@ -58,6 +58,8 @@ export async function GET(request, context) {
 
           send("status", {
             status: latest.status,
+            updatedAt: latest.updatedAt,
+            finalizedAt: latest.finalizedAt || null,
             summary: latest.summary,
             jobs: latest.jobs.map((job) => ({
               id: job.id,
@@ -69,7 +71,7 @@ export async function GET(request, context) {
             })),
           });
 
-          if (["completed", "failed", "partial"].includes(latest.status)) {
+          if (["completed", "failed", "partial", "cancelled"].includes(latest.status)) {
             send("done", { status: latest.status });
             clearInterval(timer);
             closed = true;

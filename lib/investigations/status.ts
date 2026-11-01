@@ -1,10 +1,3 @@
-export const INVESTIGATION_DEADLINE_MS =
-  Number(process.env.INVESTIGATION_DEADLINE_MS) || 120_000;
-
-/** Per-job wait cannot outlive the initial comparison deadline. */
-export const JOB_TIMEOUT_MS =
-  Number(process.env.TINYFISH_JOB_TIMEOUT_MS) || INVESTIGATION_DEADLINE_MS;
-
 export const JOB_STATUS = {
   QUEUED: "queued",
   STARTING: "starting",
@@ -15,6 +8,8 @@ export const JOB_STATUS = {
   COMPLETED: "completed",
   FAILED: "failed",
   TIMED_OUT: "timed_out",
+  CANCELLED: "cancelled",
+  INTERRUPTED: "interrupted",
   DEFERRED: "deferred",
   UNSUPPORTED: "unsupported",
 };
@@ -29,12 +24,14 @@ export const STATUS_LABELS = {
   completed: "Completed",
   failed: "Failed",
   timed_out: "Timed out",
+  cancelled: "Cancelled",
+  interrupted: "Interrupted",
   deferred: "Later check",
   unsupported: "Unsupported",
 };
 
 export function isTerminalStatus(status) {
-  return ["completed", "failed", "timed_out", "unsupported"].includes(status);
+  return ["completed", "failed", "timed_out", "unsupported", "cancelled", "interrupted"].includes(status);
 }
 
 export function mapTinyFishEventToStatus(eventType, purpose = "") {

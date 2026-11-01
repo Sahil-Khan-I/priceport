@@ -1015,7 +1015,6 @@ export default function SearchWorkflow() {
                       <p className="mt-1 text-xs text-pp-muted">
                         First check: {selectedProviders.length} provider{selectedProviders.length === 1 ? "" : "s"} · {markets[0] || "the first market"}.
                         {markets.length > 1 ? ` ${markets.slice(1).join(", ")} is saved for the next comparison.` : ""}
-                        {" "}Stops at 2 minutes.
                       </p>
                     </div>
                     <span className="rounded-full bg-emerald-50 px-3 py-1.5 text-xs font-semibold text-emerald-700">Focused search</span>

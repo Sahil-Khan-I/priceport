@@ -125,6 +125,14 @@ export function groupJobsByProvider(jobs: LiveJob[] = []) {
   }));
 }
 
+export function formatElapsed(startedAt: string | null | undefined, now: number) {
+  const start = Date.parse(startedAt || "");
+  if (!Number.isFinite(start) || !now) return "0m 00s";
+  const seconds = Math.max(0, Math.round((now - start) / 1000));
+  const minutes = Math.floor(seconds / 60);
+  return `${minutes}m ${String(seconds % 60).padStart(2, "0")}s`;
+}
+
 export function jobProgressLabel(job: LiveJob) {
   const provider = job.providerName || job.provider || "Provider";
   if (job.offer?.propertyMatch === "unmatched") return "Wrong hotel";
@@ -132,13 +140,17 @@ export function jobProgressLabel(job: LiveJob) {
     return "Unavailable";
   }
   if (job.status === "timed_out") return "Timed out";
+  if (job.status === "cancelled") return "Cancelled";
+  if (job.status === "interrupted") return "Interrupted";
   if (job.status === "unsupported") return "Unsupported";
   if (job.status === "failed") return "Check failed";
   if (job.status === "deferred") return `Later check · ${provider}`;
   if (job.offer?.totalPrice != null || job.offer?.currency) return "Price found";
-  if (["queued", "starting", "navigating", "searching", "extracting", "verifying"].includes(String(job.status))) {
-    return `Checking ${provider}`;
-  }
+  if (job.status === "queued") return "Queued";
+  if (job.status === "starting") return "Starting";
+  if (job.status === "navigating" || job.status === "searching") return "Identifying hotel";
+  if (job.status === "verifying") return "Matching room";
+  if (job.status === "extracting") return "Extracting price";
   return job.status || "Waiting";
 }
 

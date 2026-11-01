@@ -4,10 +4,10 @@ import { roomSearchInstruction } from "../lib/search/room-preferences.ts";
 import {
   classifyExecutionFailure,
   deriveInvestigationStatus,
-  formatComparisonClock,
   planSearchPairs,
 } from "../lib/investigations/deadline.ts";
 import { canReplaceJobStatus } from "../lib/investigations/deadline.ts";
+import { formatElapsed } from "../lib/investigations/live-view.ts";
 
 describe("room selection instructions", () => {
   it("searches only Standard when that category is selected", () => {
@@ -41,13 +41,12 @@ describe("room selection instructions", () => {
   });
 });
 
-describe("deadline abort classification", () => {
-  it("turns an abort into a timeout instead of a provider failure", () => {
+describe("provider failures", () => {
+  it("keeps an unexpected abort as a failure, not a deadline timeout", () => {
     const abort = Object.assign(new Error("This operation was aborted"), { name: "AbortError" });
-    const outcome = classifyExecutionFailure(abort, { deadlineAbort: true });
-    assert.equal(outcome.status, "timed_out");
-    assert.doesNotMatch(outcome.message, /aborted/i);
-    assert.equal(outcome.eventType, "TIMEOUT");
+    const outcome = classifyExecutionFailure(abort);
+    assert.equal(outcome.status, "failed");
+    assert.doesNotMatch(outcome.message, /operation was aborted/i);
   });
 
   it("keeps a real provider error as failed", () => {
@@ -85,22 +84,10 @@ describe("deadline abort classification", () => {
     assert.ok(plan.deferred.every((pair) => pair.stage === "deferred"));
   });
 
-  it("never displays more than 2:00", () => {
+  it("shows elapsed time past two minutes without capping it", () => {
     const started = "2026-11-01T00:00:00.000Z";
     const startMs = Date.parse(started);
-    const clock = formatComparisonClock({
-      startedAt: started,
-      now: startMs + 131_000,
-      deadlineAt: new Date(startMs + 120_000).toISOString(),
-      finalizedAt: null,
-    });
-    assert.equal(clock, "2:00");
-    const frozen = formatComparisonClock({
-      startedAt: started,
-      now: startMs + 200_000,
-      deadlineAt: new Date(startMs + 120_000).toISOString(),
-      finalizedAt: new Date(startMs + 45_000).toISOString(),
-    });
-    assert.equal(frozen, "0:45");
+    assert.equal(formatElapsed(started, startMs + 131_000), "2m 11s");
+    assert.equal(formatElapsed(started, startMs + 45_000), "0m 45s");
   });
 });

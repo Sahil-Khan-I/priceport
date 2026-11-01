@@ -242,7 +242,7 @@ export default function ResultsView({
           {data.offers.length === 0 ? (
             <li className="rounded-2xl border border-pp-border bg-white px-4 py-6 text-sm text-pp-muted lg:col-span-2">
               {data.status === "failed"
-                ? "No prices were returned within the 2-minute check. Timed-out providers stay listed in the investigation. Retry is manual."
+                ? "No prices were returned. Provider errors stay listed in the investigation. Retry is manual."
                 : "No usable offers yet. Failed or incomplete checks stay visible in the live research view."}
             </li>
           ) : (

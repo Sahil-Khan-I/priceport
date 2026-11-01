@@ -165,7 +165,7 @@ describe("savings exclusions", () => {
 describe("investigation lifecycle", () => {
   it("does not treat a finished browser with no result as completed", () => {
     const outcome = resolveStreamOutcome(null);
-    assert.equal(outcome.status, "timed_out");
+    assert.equal(outcome.status, "failed");
     assert.equal(outcome.extractionStatus, "failed");
   });
 
