@@ -294,6 +294,17 @@ export default function SearchWorkflow() {
     children,
     rooms,
   });
+  const nightCount =
+    checkIn && checkOut
+      ? Math.max(
+          0,
+          Math.round(
+            (new Date(`${checkOut}T00:00:00`).getTime() -
+              new Date(`${checkIn}T00:00:00`).getTime()) /
+              86400000,
+          ),
+        )
+      : 0;
 
   function selectDestination(next: Destination) {
     const changed = destination?.id !== next.id;
@@ -800,8 +811,8 @@ export default function SearchWorkflow() {
                   </div>
                   <p className="mt-2 pl-12 text-[11px] text-pp-muted">Property identity will be checked against each booking result.</p>
                 </div>
-                <div className="mt-5 grid gap-4 sm:grid-cols-2">
-                    <label className="text-sm font-medium text-pp-text">
+                <div className="mt-5 grid gap-3 sm:grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] sm:items-end">
+                    <label className="text-xs font-semibold text-pp-text">
                       Check-in
                       <input
                         type="date"
@@ -815,12 +826,14 @@ export default function SearchWorkflow() {
                       Check-out
                       <input
                         type="date"
+                        min={checkIn || undefined}
                         value={checkOut}
                         onChange={(e) => setCheckOut(e.target.value)}
                         className={`mt-2 ${fieldClass}`}
                       />
                     </label>
                   </div>
+                  <p className="mt-2 text-[11px] text-pp-muted">{nightCount} {nightCount === 1 ? "night" : "nights"} · {staySummary}</p>
                   <div className="mt-3 grid gap-2 sm:grid-cols-3">
                     <Stepper label="Adults" value={adults} min={1} onChange={setAdults} />
                     <Stepper
